@@ -11,7 +11,7 @@
 - **배포 방식: Flux가 리컨사일한다.** Talos 머신 설정이 Cilium과 Flux를 심고, 그 뒤로는 Flux가 선언된 상태로 클러스터를 스스로 맞춘다. 설치 스크립트를 순서대로 돌리는 방식이 아니다.
 - 작업 VM: Kata 런타임 포드(포드마다 경량 VM). Debian + XFCE + noVNC + Chrome + dsh.
 - 에이전트 하네스: dsh(DeepSeek Harness)와 플러그인.
-- 접속: Cilium 인그레스, 포트 443 하나, 경로로 라우팅.
+- 접속: Cilium 인그레스, 포트 443 하나, 경로로 라우팅. 이름은 `idea.internal`(HTTPS는 이 이름으로만 받는다).
 - Git: 클러스터 안 Forgejo.
 
 **이번 단계의 범위**: 단일 노드에서 "예제 이슈 하나가 PR을 거쳐 머지"되는 한 바퀴까지.
@@ -350,7 +350,7 @@ ingressController:
 
 검증
 - (전제: 배포 아티팩트가 레지스트리에 이미 있다.) `scripts/vm-destroy.sh` → `vm-create.sh` → `talos-apply.sh`만 실행한 뒤, **추가 명령 없이** 노드가 Ready가 되고 `flux get kustomizations`가 전부 Ready가 된다.
-- 호스트에서 `https://<노드 IP>/test/`가 200을 준다. 인증서는 cert-manager가 발급한 자체 서명 인증서다(`curl -k`, 발급자 확인).
+- 호스트에서 HTTPS로 `/test/`가 200을 준다. Cilium 인그레스는 SNI가 있어야 하므로 노드 IP가 아니라 인그레스 이름으로 접속한다: `curl -k --resolve idea.internal:443:<노드 IP> https://idea.internal/test/`. 인증서는 cert-manager가 발급한 자체 서명 인증서다(발급자 확인).
 - 시험용 nginx Deployment를 `kubectl delete`로 지우면 Flux가 다시 만든다.
 - `deploy/`에서 nginx를 빼고 push 하면 클러스터에서도 사라진다(prune).
 
