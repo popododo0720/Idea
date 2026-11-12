@@ -1,0 +1,10 @@
+# Entry point for the dev cluster. The root Kustomization applies this
+# directory; everything else hangs off the Flux Kustomizations listed here.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - root.yaml
+  - flux.yaml
+  - infra.yaml
+  - platform.yaml
+  - apps.yaml

@@ -4,7 +4,7 @@
 # Nothing this script writes goes into the repo.
 
 . "$(dirname "$0")/lib.sh"
-need talosctl kubectl envsubst
+need talosctl kubectl envsubst curl
 
 S="$IDEA_SECRETS_DIR/talos"
 install -d -m 700 "$IDEA_SECRETS_DIR" "$S"
@@ -37,10 +37,15 @@ envsubst '${NAMESERVER_LIST} ${REGISTRY_ADDR}' \
 # configs, so it must be a control-plane patch.
 patches=(--config-patch-control-plane "@$REPO_ROOT/images/talos/patches/base.yaml"
          --config-patch "@$OUT/host.yaml")
-# Bootstrap manifests (Cilium, Flux, root source) are generated in stage 2.
-if [ -s "$OUT/bootstrap.yaml" ]; then
-  patches+=(--config-patch-control-plane "@$OUT/bootstrap.yaml")
-fi
+# Bootstrap manifests: Cilium, Flux and the root source, planted by Talos.
+"$REPO_ROOT/scripts/render-bootstrap.sh"
+patches+=(--config-patch-control-plane "@$OUT/bootstrap.yaml")
+
+# Flux needs something to follow: the deploy artifact must already be in the
+# registry before the cluster comes up.
+curl -fsS -o /dev/null -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+  "http://$REGISTRY_ADDR/v2/idea/deploy/manifests/dev" \
+  || die "deploy artifact not found in the registry: run scripts/push-deploy.sh --no-wait first"
 
 # ---- 3. machine config
 log "generating machine config for $CLUSTER_NAME"
@@ -89,4 +94,4 @@ chmod 600 "$KUBECONFIG"
 log "waiting for the Kubernetes API"
 retry 120 5 kubectl get nodes || die "Kubernetes API did not answer"
 kubectl get nodes -o wide
-log "done (a node without CNI stays NotReady until stage 2)"
+log "done: Talos plants Cilium and Flux; Flux takes it from here"

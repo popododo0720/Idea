@@ -1,0 +1,4 @@
+# Postgres and Forgejo arrive in stage 7.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources: []

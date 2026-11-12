@@ -1,0 +1,26 @@
+# Root source: the deploy/ tree pushed as an OCI artifact to the local
+# registry (plain HTTP). The cluster follows the "dev" tag.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: idea-deploy
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: oci://192.168.123.1:5000/idea/deploy
+  ref:
+    tag: dev
+  insecure: true
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: idea-root
+  namespace: flux-system
+spec:
+  interval: 10m
+  sourceRef:
+    kind: OCIRepository
+    name: idea-deploy
+  path: ./clusters/dev
+  prune: true

@@ -1,0 +1,37 @@
+# infra-controllers: things that install CRDs and controllers.
+# infra-config: objects that need those CRDs.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infra-controllers
+  namespace: flux-system
+spec:
+  interval: 10m
+  sourceRef:
+    kind: OCIRepository
+    name: idea-deploy
+  path: ./infra/controllers
+  prune: true
+  wait: true
+  timeout: 15m
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infra-config
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: infra-controllers
+  interval: 10m
+  sourceRef:
+    kind: OCIRepository
+    name: idea-deploy
+  path: ./infra/config
+  prune: true
+  wait: true
+  timeout: 5m
+  postBuild:
+    substitute:
+      # Address the ingress certificate is issued for (the node IP).
+      INGRESS_IP: "192.168.123.10"

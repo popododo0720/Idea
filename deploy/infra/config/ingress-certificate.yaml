@@ -1,0 +1,22 @@
+# Default certificate for the Cilium ingress (referenced by name from the
+# Cilium values). INGRESS_IP is substituted by the Flux Kustomization.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: idea-ingress-tls
+  namespace: kube-system
+spec:
+  secretName: idea-ingress-tls
+  commonName: idea
+  dnsNames:
+    - idea.internal
+  ipAddresses:
+    - ${INGRESS_IP}
+  duration: 8760h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    kind: ClusterIssuer
+    name: idea-selfsigned
