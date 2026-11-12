@@ -11,6 +11,9 @@
 #   4. no string from $IDEA_SECRETS_DIR/private-strings appears in the repo
 #   5. commit author/committer e-mails are GitHub noreply addresses
 #
+# Pipelines use `grep -c >/dev/null`, not `grep -q`: under pipefail an early
+# exit of grep would kill the producer and turn a hit into a miss.
+#
 # Values are never printed: only file paths, key names, line numbers, commits.
 
 . "$(dirname "$0")/lib.sh"
@@ -48,7 +51,7 @@ search() {
   local pats=$1 label=$2 found=1 out
   [ -s "$pats" ] || return 1
   if [ "$MODE" = staged ]; then
-    if staged_added | grep -qFf "$pats"; then
+    if staged_added | grep -cFf "$pats" >/dev/null; then
       echo "      $label: in staged changes:" >&2
       git diff --cached --name-only --diff-filter=ACMR -z |
         while IFS= read -r -d '' f; do
@@ -93,7 +96,7 @@ secret_re='^[[:space:]]*kind:[[:space:]]*["'"'"']?Secret["'"'"']?[[:space:]]*$'
 if [ "$MODE" = staged ]; then
   hits="$(git diff --cached --name-only --diff-filter=ACMR -z -- deploy |
     while IFS= read -r -d '' f; do
-      git show ":$f" | grep -qE "$secret_re" && echo "$f"
+      git show ":$f" | grep -cE "$secret_re" >/dev/null && echo "$f"
     done || true)"
 else
   hits="$(grep -rlE "$secret_re" deploy 2>/dev/null || true)"
@@ -171,7 +174,7 @@ if [ "$MODE" = staged ]; then
 else
   mails="$(has_commits && git log --all --format='%ae%n%ce' | sort -u || true)"
 fi
-if [ -n "$mails" ] && echo "$mails" | grep -qvE "$noreply"; then
+if [ -n "$mails" ] && grep -qvE "$noreply" <<<"$mails"; then
   bad "a commit e-mail is not a GitHub noreply address (set git config user.email in this repo)"
 else
   ok "commit e-mails are noreply addresses"

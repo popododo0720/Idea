@@ -132,8 +132,8 @@ install_tar idea-registry "$REGISTRY_VERSION" \
 # The existing "default" network is left exactly as it is.
 require_idea_name "$LIBVIRT_NETWORK"
 require_idea_name "$LIBVIRT_BRIDGE"
-if ! virsh net-info "$LIBVIRT_NETWORK" >/dev/null 2>&1; then
-  if ip -4 route | grep -q "^${NETWORK_CIDR%.*}\."; then
+if ! net_exists "$LIBVIRT_NETWORK"; then
+  if [ -n "$(ip -4 route | grep "^${NETWORK_CIDR%.*}\." || true)" ]; then
     die "$NETWORK_CIDR overlaps an existing route on this host"
   fi
   log "defining libvirt network $LIBVIRT_NETWORK ($NETWORK_CIDR)"
@@ -155,11 +155,11 @@ NETXML
   virsh net-define "$netxml" >/dev/null
   rm -f "$netxml"
 fi
-if ! virsh net-info "$LIBVIRT_NETWORK" | grep -q '^Active:.*yes'; then
+if ! net_active "$LIBVIRT_NETWORK"; then
   log "starting libvirt network $LIBVIRT_NETWORK"
   virsh net-start "$LIBVIRT_NETWORK" >/dev/null
 fi
-virsh net-info "$LIBVIRT_NETWORK" | grep -q '^Autostart:.*yes' || virsh net-autostart "$LIBVIRT_NETWORK" >/dev/null
+net_autostart "$LIBVIRT_NETWORK" || virsh net-autostart "$LIBVIRT_NETWORK" >/dev/null
 
 gw="$(virsh net-dumpxml "$LIBVIRT_NETWORK" | sed -n "s/.*<ip address='\([0-9.]*\)'.*/\1/p" | head -1)"
 [ "$gw" = "$GATEWAY_IP" ] || die "libvirt gateway is $gw but config.env says $GATEWAY_IP"

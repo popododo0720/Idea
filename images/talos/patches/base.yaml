@@ -1,0 +1,23 @@
+# Machine config patch for every idea node (Talos v1.14 multi-document format).
+# No secrets here. Host-specific values are in host.yaml.tmpl.
+
+# No built-in CNI: Cilium is installed instead.
+apiVersion: v1alpha1
+kind: KubeFlannelCNIConfig
+$patch: delete
+---
+# Cilium replaces kube-proxy.
+apiVersion: v1alpha1
+kind: KubeProxyConfig
+enabled: false
+---
+# Single node: run workloads on the control plane and let it receive
+# load-balancer traffic.
+apiVersion: v1alpha1
+kind: KubeNodeConfig
+taints:
+  node-role.kubernetes.io/control-plane:
+    $patch: delete
+labels:
+  node.kubernetes.io/exclude-from-external-load-balancers:
+    $patch: delete

@@ -46,3 +46,9 @@ require_idea_name() {
     *) die "refusing to touch a resource not named idea-*: $1" ;;
   esac
 }
+
+# libvirt network state. Output is captured first: piping virsh straight into
+# `grep -q` can fail under pipefail when grep exits early.
+net_exists()    { virsh net-info "$1" >/dev/null 2>&1; }
+net_active()    { local o; o="$(virsh net-info "$1" 2>/dev/null)" || return 1; grep -q '^Active:.*yes' <<<"$o"; }
+net_autostart() { local o; o="$(virsh net-info "$1" 2>/dev/null)" || return 1; grep -q '^Autostart:.*yes' <<<"$o"; }

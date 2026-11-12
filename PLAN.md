@@ -257,30 +257,36 @@ virt-install --name idea-talos-1 --memory 16384 --vcpus <호스트 코어의 절
   --graphics none --noautoconsole
 ```
 
-- 머신 설정 패치(`images/talos/patches/base.yaml`):
+- 머신 설정 패치(`images/talos/patches/base.yaml`). Talos v1.14부터 머신 설정이 문서 여러 개로 나뉘어서, 예전의 `cluster.network.cni`, `cluster.proxy`, `allowSchedulingOnControlPlanes`, `machine.install` 키는 쓰지 않는다:
 
 ```yaml
-cluster:
-  allowSchedulingOnControlPlanes: true
-  network:
-    cni:
-      name: none
-  proxy:
-    disabled: true
-machine:
-  install:
-    disk: /dev/vda
-    image: factory.talos.dev/metal-installer/<스키매틱 ID>:<Talos 버전>
+apiVersion: v1alpha1
+kind: KubeFlannelCNIConfig      # 기본 CNI를 뺀다 (Cilium을 쓴다)
+$patch: delete
+---
+apiVersion: v1alpha1
+kind: KubeProxyConfig           # kube-proxy를 끈다
+enabled: false
+---
+apiVersion: v1alpha1
+kind: KubeNodeConfig            # 단일 노드: 컨트롤 플레인에 워크로드를 올린다
+taints:
+  node-role.kubernetes.io/control-plane:
+    $patch: delete
 ```
 
-- 로컬 레지스트리를 Talos가 쓸 수 있게 레지스트리 설정 패치를 추가한다.
+- 설치 디스크와 설치 이미지는 패치가 아니라 `talosctl gen config`의 `--install-disk`, `--install-image`로 준다.
+- 네임서버(`ResolverConfig`)와 로컬 레지스트리(`RegistryMirrorConfig`)는 `images/talos/patches/host.yaml.tmpl`에 두고 `config.env` 값으로 렌더한다.
 - 생성과 적용(`scripts/talos-apply.sh`, 출력은 전부 시크릿 디렉터리로):
 
 ```
 talosctl gen secrets -o $IDEA_SECRETS_DIR/talos/secrets.yaml
 talosctl gen config idea https://<노드 IP>:6443 \
   --with-secrets $IDEA_SECRETS_DIR/talos/secrets.yaml \
-  --config-patch @images/talos/patches/base.yaml \
+  --install-disk /dev/vda \
+  --install-image factory.talos.dev/metal-installer/<스키매틱 ID>:<Talos 버전> \
+  --config-patch-control-plane @images/talos/patches/base.yaml \
+  --config-patch @_out/talos/host.yaml \
   --output $IDEA_SECRETS_DIR/talos/
 talosctl apply-config --insecure -n <노드 IP> --file $IDEA_SECRETS_DIR/talos/controlplane.yaml
 talosctl bootstrap -n <노드 IP> -e <노드 IP>
