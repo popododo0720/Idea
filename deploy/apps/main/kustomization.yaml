@@ -1,7 +1,7 @@
-# The main agent and what it needs to reach work VMs.
+# The main agent image is also what the controller starts per task (as a Job);
+# this standing pod is for trying delegation by hand.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ssh-key.yaml
   - main.yaml
-  - git-fixture.yaml

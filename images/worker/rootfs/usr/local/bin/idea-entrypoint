@@ -37,7 +37,8 @@ HTML
 # the running pod, never in the image.
 umask 077
 {
-  for v in DEEPSEEK_API_KEY CLAUDE_CODE_OAUTH_TOKEN DSH_TELEMETRY_MODE DISPLAY; do
+  for v in DEEPSEEK_API_KEY CLAUDE_CODE_OAUTH_TOKEN DSH_TELEMETRY_MODE DISPLAY \
+           $(compgen -v | grep -E '^(FORGEJO_|IDEA_)' || true); do
     if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
   done
   printf 'export PATH=%q\n' "$PATH"

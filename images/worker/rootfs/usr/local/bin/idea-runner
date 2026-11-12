@@ -1,0 +1,15 @@
+#!/bin/bash
+# Forgejo Actions runner for the test gate: registers with Forgejo using the
+# token the controller put in a Secret, then runs jobs directly in this
+# (Kata) pod with the "host" executor. Nothing is kept between pod restarts.
+set -euo pipefail
+: "${FORGEJO_INSTANCE:?}" "${RUNNER_NAME:=idea-runner}"
+token_file=/etc/idea/runner/token
+until [ -s "$token_file" ]; do echo "waiting for the registration token"; sleep 5; done
+mkdir -p ~/runner && cd ~/runner
+forgejo-runner register --no-interactive \
+  --instance "$FORGEJO_INSTANCE" \
+  --token "$(cat "$token_file")" \
+  --name "$RUNNER_NAME" \
+  --labels "idea:host"
+exec forgejo-runner daemon

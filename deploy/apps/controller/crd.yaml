@@ -1,0 +1,76 @@
+# Task: one issue being worked on. The status is the single source of truth
+# for where the task stands; the controller keeps nothing in memory.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: tasks.idea.dev
+spec:
+  group: idea.dev
+  scope: Namespaced
+  names:
+    kind: Task
+    plural: tasks
+    singular: task
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Repo
+          type: string
+          jsonPath: .spec.repo
+        - name: Issue
+          type: integer
+          jsonPath: .spec.issue
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: PR
+          type: integer
+          jsonPath: .status.pullRequest
+        - name: Message
+          type: string
+          jsonPath: .status.message
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [repo, issue]
+              properties:
+                repo:
+                  type: string
+                issue:
+                  type: integer
+                  format: int64
+                title:
+                  type: string
+                body:
+                  type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, WorkerStarting, Working, Gate, Done, Failed]
+                phaseSince:
+                  type: string
+                message:
+                  type: string
+                worker:
+                  type: string
+                branch:
+                  type: string
+                pullRequest:
+                  type: integer
+                  format: int64
+                pullRequestURL:
+                  type: string
+                headSHA:
+                  type: string

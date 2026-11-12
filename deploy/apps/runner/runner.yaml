@@ -1,0 +1,60 @@
+# Forgejo Actions runner for the test gate. It runs pull request tests, which
+# is untrusted code, so it is a Kata pod in the work namespace under the same
+# network rules as work VMs. The registration token is issued by the
+# controller; until that Secret exists the runner waits.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: idea-runner
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      idea.dev/runner: idea-runner
+  template:
+    metadata:
+      labels:
+        idea.dev/runner: idea-runner
+        idea.dev/role: worker
+    spec:
+      runtimeClassName: kata
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: runner
+          image: 192.168.123.1:5000/idea/worker:0.5.0
+          command: ["/usr/local/bin/idea-runner"]
+          env:
+            - name: FORGEJO_INSTANCE
+              value: http://forgejo-http.idea-system.svc:3000
+            - name: RUNNER_NAME
+              value: idea-runner
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          volumeMounts:
+            - name: token
+              mountPath: /etc/idea/runner
+              readOnly: true
+      volumes:
+        - name: token
+          secret:
+            secretName: idea-runner-registration
+            optional: true

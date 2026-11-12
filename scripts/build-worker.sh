@@ -14,6 +14,8 @@ podman build \
   --build-arg CHROME_VERSION="$CHROME_VERSION" \
   --build-arg CHROME_DEB_SHA256="$CHROME_DEB_SHA256" \
   --build-arg DSH_VERSION="$DSH_VERSION" \
+  --build-arg FORGEJO_RUNNER_VERSION="$FORGEJO_RUNNER_VERSION" \
+  --build-arg FORGEJO_RUNNER_SHA256="$FORGEJO_RUNNER_SHA256" \
   -t "$img" "$REPO_ROOT/images/worker"
 
 "$REPO_ROOT/scripts/check-image.sh" "$img"

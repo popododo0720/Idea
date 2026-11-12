@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: idea-controller
+  namespace: idea-system
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      idea.dev/role: controller
+  template:
+    metadata:
+      labels:
+        idea.dev/role: controller
+    spec:
+      serviceAccountName: idea-controller
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: 192.168.123.1:5000/idea/controller:0.1.0
+          env:
+            - name: FORGEJO_URL
+              value: http://forgejo-http:3000
+            - name: FORGEJO_ORG
+              value: idea
+            - name: FORGEJO_REPO
+              value: hello-calc
+            - name: WORKER_IMAGE
+              value: 192.168.123.1:5000/idea/worker:0.5.0
+            - name: MAIN_IMAGE
+              value: 192.168.123.1:5000/idea/main:0.1.2
+            # actions: wait for the Forgejo Actions result on the pull request.
+            # controller: run the tests in a clean Kata pod ourselves.
+            - name: GATE_MODE
+              value: actions
+            - name: MAX_ACTIVE_TASKS
+              value: "1"
+            - name: FORGEJO_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: idea-forgejo-admin
+                  key: username
+            - name: FORGEJO_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: idea-forgejo-admin
+                  key: password
+            - name: WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: idea-webhook-secret
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: idea-controller-db
+                  key: password
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: idea-controller
+  namespace: idea-system
+spec:
+  selector:
+    idea.dev/role: controller
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

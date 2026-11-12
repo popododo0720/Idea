@@ -5,10 +5,10 @@
 # pods, not the host's networks.
 #
 #   in:  the ingress (noVNC on 6080), the main agent (SSH on 2222)
-#   out: cluster DNS, public internet, the in-cluster Git server
+#   out: cluster DNS, public internet, Forgejo (the in-cluster Git server)
 #   everything else is dropped (and shows up in Hubble).
 #
-# Forgejo and the package cache are added in the stage that introduces them.
+# The same rules apply to the Actions runner pod, which carries this label too.
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
 metadata:
@@ -36,10 +36,10 @@ spec:
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: idea-system
-            idea.dev/role: git-fixture
+            app.kubernetes.io/name: forgejo
       toPorts:
         - ports:
-            - port: "9418"
+            - port: "3000"
               protocol: TCP
     - toEndpoints:
         - matchLabels:

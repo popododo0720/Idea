@@ -56,6 +56,14 @@ RUN cd /opt/dsh \
  && ln -s /opt/dsh/node_modules/.bin/pnpm /usr/local/bin/pnpm \
  && rm -rf /root/.npm /tmp/*
 
+# Forgejo Actions runner (used by the runner pod for the test gate).
+ARG FORGEJO_RUNNER_VERSION
+ARG FORGEJO_RUNNER_SHA256
+RUN curl -fsSL -o /usr/local/bin/forgejo-runner \
+      "https://code.forgejo.org/forgejo/runner/releases/download/v${FORGEJO_RUNNER_VERSION}/forgejo-runner-${FORGEJO_RUNNER_VERSION}-linux-amd64" \
+ && echo "${FORGEJO_RUNNER_SHA256}  /usr/local/bin/forgejo-runner" | sha256sum -c - \
+ && chmod 0755 /usr/local/bin/forgejo-runner
+
 # The X server runs unprivileged and cannot create its socket directory.
 RUN rm -f /etc/ssh/ssh_host_* \
  && mkdir -p /run/sshd \
@@ -63,7 +71,7 @@ RUN rm -f /etc/ssh/ssh_host_* \
  && useradd --create-home --uid 1000 --shell /bin/bash idea
 
 COPY rootfs/ /
-RUN chmod 0755 /usr/local/bin/idea-entrypoint
+RUN chmod 0755 /usr/local/bin/idea-entrypoint /usr/local/bin/idea-pr /usr/local/bin/idea-runner
 
 USER 1000:1000
 WORKDIR /home/idea

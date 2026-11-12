@@ -1,0 +1,22 @@
+# Test gate: a pull request is merged only when this passes.
+# Runs on the idea runner (a Kata pod) with the host executor.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: idea
+    steps:
+      - name: Check out
+        # Cloned by its in-cluster address: the runner cannot reach the
+        # public URL of the Git server from inside the cluster.
+        run: |
+          git clone -q "http://forgejo-http.idea-system.svc:3000/${{ github.repository }}.git" src
+          cd src
+          git checkout -q "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Test
+        run: |
+          cd src
+          npm test

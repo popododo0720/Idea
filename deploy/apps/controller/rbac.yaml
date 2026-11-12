@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: idea-controller
+  namespace: idea-system
+---
+# In its own namespace: Tasks, and the main agent job it starts per task.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: idea-controller
+  namespace: idea-system
+rules:
+  - apiGroups: ["idea.dev"]
+    resources: ["tasks", "tasks/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: idea-controller
+  namespace: idea-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: idea-controller
+subjects:
+  - kind: ServiceAccount
+    name: idea-controller
+    namespace: idea-system
+---
+# In the work namespace: work VMs, test jobs, and the two tokens it issues.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: idea-controller
+  namespace: idea-work
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["idea-worker-forgejo", "idea-runner-registration"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: idea-controller
+  namespace: idea-work
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: idea-controller
+subjects:
+  - kind: ServiceAccount
+    name: idea-controller
+    namespace: idea-system
