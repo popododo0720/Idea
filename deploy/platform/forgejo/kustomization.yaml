@@ -5,3 +5,4 @@ resources:
   - secrets.yaml
   - source.yaml
   - helmrelease.yaml
+  - subpath-proxy.yaml

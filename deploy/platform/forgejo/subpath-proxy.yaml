@@ -1,0 +1,118 @@
+# Forgejo is published under https://idea.internal/git/ but does not serve a
+# URL prefix itself, and the Cilium ingress cannot rewrite paths. This small
+# nginx strips the /git prefix and forwards to Forgejo. Pods inside the
+# cluster skip it and use http://forgejo-http:3000/ directly.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: forgejo-subpath-nginx
+data:
+  default.conf: |
+    upstream forgejo {
+      server forgejo-http:3000;
+    }
+    server {
+      listen 8080;
+      client_max_body_size 512m;
+
+      location = /git {
+        return 301 /git/;
+      }
+      location /git/ {
+        # Forward the raw, still-encoded path with the prefix removed
+        # (as the Forgejo reverse-proxy documentation recommends).
+        rewrite ^ $request_uri;
+        rewrite ^/git(/.*) $1 break;
+        proxy_pass http://forgejo$uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_http_version 1.1;
+        proxy_request_buffering off;
+        proxy_read_timeout 600s;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forgejo-subpath
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      idea.dev/role: forgejo-subpath
+  template:
+    metadata:
+      labels:
+        idea.dev/role: forgejo-subpath
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: docker.io/nginxinc/nginx-unprivileged:1.31.7-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/nginx/conf.d
+              readOnly: true
+      volumes:
+        - name: conf
+          configMap:
+            name: forgejo-subpath-nginx
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: forgejo-subpath
+spec:
+  selector:
+    idea.dev/role: forgejo-subpath
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: forgejo
+spec:
+  ingressClassName: cilium
+  tls:
+    - hosts:
+        - idea.internal
+  rules:
+    - http:
+        paths:
+          - path: /git
+            pathType: Prefix
+            backend:
+              service:
+                name: forgejo-subpath
+                port:
+                  name: http

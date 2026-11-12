@@ -36,18 +36,10 @@ spec:
       runAsNonRoot: true
       runAsUser: 1000
       runAsGroup: 1000
+    # Published by our own Ingress through the prefix-stripping proxy
+    # (subpath-proxy.yaml), not by the chart.
     ingress:
-      enabled: true
-      className: cilium
-      hosts:
-        - host: idea.internal
-          paths:
-            - path: /git/
-              pathType: Prefix
-              port: http
-      tls:
-        - hosts:
-            - idea.internal
+      enabled: false
     gitea:
       admin:
         existingSecret: idea-forgejo-admin
