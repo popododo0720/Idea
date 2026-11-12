@@ -1,0 +1,8 @@
+# Pods with runtimeClassName: kata run inside their own lightweight VM.
+# "kata" is the containerd handler registered by the Talos kata-containers
+# extension (default hypervisor configuration, QEMU).
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: kata
+handler: kata
