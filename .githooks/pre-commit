@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Block commits that contain secrets or private strings (PLAN.md 4.5, 4.7).
+exec "$(git rev-parse --show-toplevel)/scripts/check-secrets.sh" --staged
