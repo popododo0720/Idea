@@ -1,0 +1,7 @@
+# Home-level dsh patch for every profile in the idea worker.
+
+# Do not send session logs (which contain the code being worked on) along
+# with requests to the model API. dsh turns this on by default.
+- id: session-log-deepseek
+  config:
+    enabled: false

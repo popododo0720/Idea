@@ -1,0 +1,16 @@
+# gitleaks rules for scanning image filesystems (scripts/check-image.sh).
+#
+# Third-party package trees are skipped by the pattern scan: published npm
+# packages carry public API keys, sample tokens and test fixtures that are
+# not ours. They are still covered by the other image checks: key and
+# credential files, private key material, and the comparison against the real
+# values in the secrets directory, all of which look at the whole filesystem.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "third-party package trees"
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)\.local/share/pnpm/''',
+]

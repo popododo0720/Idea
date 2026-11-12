@@ -13,6 +13,7 @@ podman build \
   --build-arg NODE_SHA256="$NODE_SHA256" \
   --build-arg CHROME_VERSION="$CHROME_VERSION" \
   --build-arg CHROME_DEB_SHA256="$CHROME_DEB_SHA256" \
+  --build-arg DSH_VERSION="$DSH_VERSION" \
   -t "$img" "$REPO_ROOT/images/worker"
 
 "$REPO_ROOT/scripts/check-image.sh" "$img"

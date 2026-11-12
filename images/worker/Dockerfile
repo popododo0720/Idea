@@ -71,6 +71,25 @@ ENV HOME=/home/idea \
     DISPLAY=:1 \
     DSH_TELEMETRY_MODE=DISABLED
 
+# dsh profiles, prepared at build time so a pod needs no install step:
+#   headless  one-shot tasks + browser control + Claude Code subagent
+#   desk      headless + desktop control
+# Plugins are the official packages at the same version as dsh itself.
+ARG DSH_VERSION
+RUN dsh --profile headless --dump-config >/dev/null \
+ && dsh plugin --profile headless add \
+      "@deepseek-ai/dsh-browser-use@${DSH_VERSION}" \
+      "@deepseek-ai/dsh-experimental-browser-use-chrome-devtools-mcp@${DSH_VERSION}" \
+      "@deepseek-ai/dsh-subagent-claude-code@${DSH_VERSION}" \
+ && dsh --profile desk --from-default-profile headless --dump-config >/dev/null \
+ && dsh plugin --profile desk add \
+      "@deepseek-ai/dsh-computer-use@${DSH_VERSION}" \
+      "@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@${DSH_VERSION}" \
+ && rm -rf /home/idea/.cache /home/idea/.npm /home/idea/.local/share/pnpm \
+           /home/idea/.dsh/sessions /home/idea/.dsh/storages \
+ && mkdir -p /home/idea/work
+COPY --chown=1000:1000 dsh/home/ /home/idea/.dsh/
+
 # 6080: noVNC (HTTP + WebSocket)   2222: sshd
 EXPOSE 6080 2222
 ENTRYPOINT ["/usr/local/bin/idea-entrypoint"]

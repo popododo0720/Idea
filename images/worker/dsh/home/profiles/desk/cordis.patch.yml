@@ -1,0 +1,7 @@
+# Profile "desk": the headless profile plus desktop control (mouse, keyboard,
+# window listing) through the official Cua Driver provider. Experimental.
+- insert:
+    - id: computer-use
+      name: '@deepseek-ai/dsh-computer-use'
+    - id: computer-use-cua-driver
+      name: '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native'

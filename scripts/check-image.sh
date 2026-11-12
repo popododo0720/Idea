@@ -6,7 +6,8 @@
 # 1. layer history and image config (ARG/ENV/labels): gitleaks + real values
 # 2. files that must never be in an image: SSH host keys, private keys,
 #    tool credentials, logged-in state
-# 3. gitleaks over the parts of the filesystem we author
+# 3. gitleaks over the parts of the filesystem we author (third-party
+#    package trees excluded, see scripts/gitleaks-image.toml)
 # 4. real values from $IDEA_SECRETS_DIR anywhere in the filesystem
 #
 # Values are never printed.
@@ -86,7 +87,8 @@ scan=()
 for d in home root etc/idea etc/ssh usr/local/bin tmp; do [ -e "$d" ] && scan+=("$d"); done
 leak=0
 for d in "${scan[@]}"; do
-  gitleaks dir --no-banner --redact --log-level=error "$d" || leak=1
+  gitleaks dir --no-banner --redact --log-level=error \
+    --config "$REPO_ROOT/scripts/gitleaks-image.toml" "$d" || leak=1
 done
 [ "$leak" = 0 ] && ok "gitleaks (image files)" || bad "gitleaks found a secret in image files"
 
