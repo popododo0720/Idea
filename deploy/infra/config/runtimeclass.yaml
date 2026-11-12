@@ -1,8 +1,19 @@
 # Pods with runtimeClassName: kata run inside their own lightweight VM.
+#
 # "kata" is the containerd handler registered by the Talos kata-containers
-# extension (default hypervisor configuration, QEMU).
+# extension with its default configuration (Cloud Hypervisor, virtio-fs).
+# The extension also registers "kata-qemu" (QEMU); it works too but its idle
+# footprint was higher in our measurement (docs/spikes/03-kata.md).
+#
+# overhead: what one idle sandbox costs on the node outside the guest
+# (VMM + shim + virtiofsd, measured 225-290 MiB). The guest's own memory is
+# not in the pod cgroup, so size nodes for "2 GiB base + container limits".
 apiVersion: node.k8s.io/v1
 kind: RuntimeClass
 metadata:
   name: kata
 handler: kata
+overhead:
+  podFixed:
+    memory: 300Mi
+    cpu: 250m
