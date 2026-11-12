@@ -38,7 +38,9 @@ TMP="$(mktemp -d /dev/shm/idea-check.XXXXXX)"
 chmod 700 "$TMP"
 trap 'rm -rf "$TMP"' EXIT
 
-MARK='@@idea-commit '
+# Commit marker for history scans. It is random per run so that it can never
+# occur in the history being scanned (a fixed marker would match this file).
+MARK="@@idea-commit-$$-$RANDOM$RANDOM "
 
 # Text streams to search, one per mode.
 tree_files() { git ls-files -co --exclude-standard -z; }
