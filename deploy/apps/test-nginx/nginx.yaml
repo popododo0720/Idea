@@ -56,6 +56,11 @@ metadata:
   name: test-nginx
 spec:
   ingressClassName: cilium
+  # No secretName: the Cilium default certificate (idea-ingress-tls) is used.
+  # A host is required here; clients must send it as SNI.
+  tls:
+    - hosts:
+        - idea.internal
   rules:
     - http:
         paths:
