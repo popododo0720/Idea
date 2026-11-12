@@ -23,6 +23,19 @@ spec:
     persistence:
       enabled: true
       size: 5Gi
+    # The namespace enforces the "restricted" Pod Security Standard.
+    podSecurityContext:
+      fsGroup: 1000
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
     ingress:
       enabled: true
       className: cilium
