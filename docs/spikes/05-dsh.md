@@ -1,7 +1,7 @@
 # 단계 5. dsh와 브라우저 조작
 
 날짜: 2026-11-12
-결과: **5a·5b 통과, 5c 조건부로 됨, 훅 있음, 5d는 사람의 로그인 대기**
+결과: **통과** (5a·5b 통과, 5c 조건부로 됨, 5d 됨, 훅 있음)
 
 ## 검증
 
@@ -10,7 +10,7 @@
 | 5a. DeepSeek 키로 headless 실행 | 통과. 새 포드에서 별도 준비 없이 재현됨 |
 | 5b. 데스크톱 Chrome으로 페이지 열기·제목 읽기·스크린샷 저장 | 통과. 새 포드에서 재현됨 |
 | 5c. 리눅스 데스크톱 조작 플러그인이 XFCE에서 동작 | 조건부로 됨 (아래) |
-| 5d. Claude 구독 연결 | **대기**. 플러그인과 주입 경로는 준비됨. 사람이 토큰을 만들어 줘야 한다 |
+| 5d. Claude 구독 연결 | 됨. 위임 성공, 작업 포드 2개 동시 사용에서 충돌 없음 |
 | dsh 훅 API | 있음 (아래) |
 | API 키 Secret이 없어도 Flux의 Kustomization이 Ready | 통과. Secret을 지우고 포드를 다시 띄워도 포드와 6개 Kustomization 모두 정상 |
 
@@ -70,12 +70,15 @@ dsh headless --approval-policy never "Reply with exactly the single word: pong"
 - 에이전트 단위 이벤트도 있다: `agent/created`, `agent/pre-step`, `agent/turn-stopping`.
 - Claude Code의 `hooks.json`을 그대로 돌리는 공식 패키지(`@deepseek-ai/dsh-hooks-claude-code`, 실험적)가 있다.
 
-### 5d. Claude 구독 (준비만 됨)
+### 5d. Claude 구독
 
 - 쓸 플러그인: 공식 번들 `@deepseek-ai/dsh-subagent-claude-code`. 공식 Claude Agent SDK로 Claude Code를 구동하고, 로그인 상태를 만들거나 바꾸지 않는다. 도구 이름은 `subagent_claude_code`.
 - **쓰지 않는 것**: dsh 기본 번들의 `llm-pi-ai`에 든 Anthropic OAuth 로그인. 소스가 Claude Code의 클라이언트 ID와 `user-agent: claude-cli/…` 헤더를 흉내 낸다(계획이 금지한 방식). headless 프로파일은 이 로그인 경로(저장된 자격 증명)를 기본으로 꺼 둔다. 같은 방식의 커뮤니티 플러그인 2개도 쓰지 않는다.
 - 주입 경로: 사람이 `claude setup-token`으로 만든 토큰 → `~/.idea-secrets/env`의 `CLAUDE_CODE_OAUTH_TOKEN` → `apply-secrets.sh` → Secret → 포드 환경 변수 → 프로파일 패치가 서브에이전트의 `env`로 넘긴다(이 제공자는 자격 증명처럼 생긴 환경 변수를 자식 프로세스에서 지우므로 명시적으로 넘겨야 한다).
-- 남은 일: 토큰을 받은 뒤 위임 1회 성공 확인, 작업 포드 2개가 같은 토큰을 동시에 쓸 때 충돌 여부 확인.
+- 로그인은 사람이 호스트에서 `claude setup-token`으로 했다. 토큰은 채팅이나 레포를 거치지 않고 `~/.idea-secrets/env`에만 들어갔다.
+- 결과: `dsh headless`에 "Claude Code 서브에이전트에게 맡기라"고 시키면 `subagent_claude_code` 도구가 호출되고, Claude의 답("391; I'm Claude (Sonnet).")이 돌아왔다.
+- **동시 사용**: 작업 포드 2개에서 같은 토큰으로 위임을 3번씩 동시에 돌렸고 6번 모두 성공했다. `setup-token`의 토큰은 갱신 없이 쓰는 장기 토큰이라, 포드끼리 갱신 토큰을 서로 무효로 만드는 문제가 생기지 않는다(로그인 파일 `~/.claude/.credentials.json`을 여러 포드가 나눠 쓰는 방식이었다면 생길 수 있는 문제다).
+- 위임은 한 번에 과제 하나이고 이어 하기가 없다. 서브에이전트의 권한 모드 기본값은 `dontAsk`(이미 허용되지 않은 동작은 거부)다.
 
 ## 버전
 
@@ -114,5 +117,6 @@ dsh headless --approval-policy never "Reply with exactly the single word: pong"
 - **승인이 필요한 도구 호출은 headless에서 거부된다**(`--approval-policy never`). 작업 VM 안에서는 권한 모드를 넓히는 것(`DSH_PERMISSION_MODE`)을 단계 6에서 정해야 한다. VM이 격리 경계이므로 넓혀도 되는지 판단이 필요하다.
 - **화면을 보는 조작은 이미지 입력 모델이 있어야 쓸모가 있다.** 데스크톱 조작을 실제로 쓰려면 이미지 입력 경로와 AT-SPI를 이미지에 넣는 것을 검토한다.
 - **dsh-yawn은 dsh 저장소의 일부가 아니라 제3자 배포판이다.** 쿠버네티스에서는 agent-sandbox CRD로 샌드박스를 만들고, 러너 포드는 권한 상승 허용과 특권 사이드카를 기본으로 쓴다. Kata는 언급이 없다. 단계 6의 비교에서 이 점을 본다.
+- **구독 토큰을 자동화에 쓰는 것의 약관 적합성은 확인하지 않았다.** 한 사람이 자기 계정으로 쓰는 범위에서 시험했다. 공개 배포판에서 사용자에게 구독 로그인을 쓰게 할지는 따로 확인하고, 기본 경로는 API 키로 두는 편이 안전하다.
 - dsh 저장소에 SSH 원격 실행 패키지(`dsh-ssh`, `dsh-subprocess-ssh` 등)가 따로 있다. 단계 6의 "직접 짠 SSH 플러그인" 대신 쓸 수 있는지 먼저 확인한다.
 - 이미지가 2.72GB로 커졌다(dsh와 플러그인이 약 1.1GB). 첫 pull 시간이 늘어난다.
