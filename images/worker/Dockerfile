@@ -43,8 +43,10 @@ RUN curl -fsSL -o /tmp/node.tar.xz \
  && rm -f /tmp/node.tar.xz
 
 # No baked SSH host keys; one unprivileged user.
+# The X server runs unprivileged and cannot create its socket directory.
 RUN rm -f /etc/ssh/ssh_host_* \
  && mkdir -p /run/sshd \
+ && mkdir -p -m 1777 /tmp/.X11-unix \
  && useradd --create-home --uid 1000 --shell /bin/bash idea
 
 COPY rootfs/ /
