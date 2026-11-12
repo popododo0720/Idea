@@ -43,6 +43,19 @@ RUN curl -fsSL -o /tmp/node.tar.xz \
  && rm -f /tmp/node.tar.xz
 
 # No baked SSH host keys; one unprivileged user.
+# dsh (DeepSeek Harness) and pnpm, pinned by images/worker/dsh/package-lock.json.
+# pnpm is what `dsh plugin` uses; bubblewrap is dsh's Linux tool sandbox.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends bubblewrap \
+ && rm -rf /var/lib/apt/lists/*
+COPY dsh/package.json dsh/package-lock.json /opt/dsh/
+RUN cd /opt/dsh \
+ && npm ci --no-audit --no-fund \
+ && npm cache clean --force \
+ && ln -s /opt/dsh/node_modules/.bin/dsh /usr/local/bin/dsh \
+ && ln -s /opt/dsh/node_modules/.bin/pnpm /usr/local/bin/pnpm \
+ && rm -rf /root/.npm /tmp/*
+
 # The X server runs unprivileged and cannot create its socket directory.
 RUN rm -f /etc/ssh/ssh_host_* \
  && mkdir -p /run/sshd \
@@ -55,7 +68,8 @@ RUN chmod 0755 /usr/local/bin/idea-entrypoint
 USER 1000:1000
 WORKDIR /home/idea
 ENV HOME=/home/idea \
-    DISPLAY=:1
+    DISPLAY=:1 \
+    DSH_TELEMETRY_MODE=DISABLED
 
 # 6080: noVNC (HTTP + WebSocket)   2222: sshd
 EXPOSE 6080 2222
