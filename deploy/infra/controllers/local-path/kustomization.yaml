@@ -1,0 +1,57 @@
+# Local Path Provisioner: dynamic volumes on the node's own disk.
+# local-path-storage.yaml is the upstream v0.0.37 manifest, unmodified; the
+# patches below adapt it to Talos (docs: "Local Storage" guide):
+#   - volumes live on the Talos user volume mounted at /var/mnt/local-path-provisioner
+#   - local-path is the default StorageClass
+#   - the namespace allows the provisioner's privileged helper pods
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - local-path-storage.yaml
+patches:
+  - patch: |-
+      kind: ConfigMap
+      apiVersion: v1
+      metadata:
+        name: local-path-config
+        namespace: local-path-storage
+      data:
+        config.json: |-
+          {
+            "nodePathMap": [
+              {
+                "node": "DEFAULT_PATH_FOR_NON_LISTED_NODES",
+                "paths": ["/var/mnt/local-path-provisioner"]
+              }
+            ]
+          }
+        # Same as upstream, with the helper image pinned.
+        helperPod.yaml: |-
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: helper-pod
+          spec:
+            priorityClassName: system-node-critical
+            tolerations:
+              - key: node.kubernetes.io/disk-pressure
+                operator: Exists
+                effect: NoSchedule
+            containers:
+            - name: helper-pod
+              image: docker.io/library/busybox:1.38.0
+              imagePullPolicy: IfNotPresent
+  - patch: |-
+      apiVersion: storage.k8s.io/v1
+      kind: StorageClass
+      metadata:
+        name: local-path
+        annotations:
+          storageclass.kubernetes.io/is-default-class: "true"
+  - patch: |-
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: local-path-storage
+        labels:
+          pod-security.kubernetes.io/enforce: privileged

@@ -21,3 +21,14 @@ taints:
 labels:
   node.kubernetes.io/exclude-from-external-load-balancers:
     $patch: delete
+---
+# Second disk of the VM, dedicated to persistent volumes. Talos formats it and
+# mounts it at /var/mnt/local-path-provisioner; the Local Path Provisioner
+# (deploy/infra/controllers/local-path) hands out directories from there.
+apiVersion: v1alpha1
+kind: UserVolumeConfig
+name: local-path-provisioner
+provisioning:
+  diskSelector:
+    match: disk.dev_path == "/dev/vdb"
+  minSize: 20GB

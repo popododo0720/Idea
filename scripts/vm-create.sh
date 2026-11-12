@@ -38,8 +38,10 @@ vcpus="${VM_VCPUS:-$(( $(nproc) / 2 ))}"
 [ "$vcpus" -ge 4 ] || vcpus=4
 disk="$IDEA_DATA_DIR/vm/$VM_NAME.qcow2"
 [ ! -e "$disk" ] || die "$disk already exists (run scripts/vm-destroy.sh first)"
+data_disk="$IDEA_DATA_DIR/vm/$VM_NAME-data.qcow2"
+[ ! -e "$data_disk" ] || die "$data_disk already exists (run scripts/vm-destroy.sh first)"
 
-log "creating $VM_NAME: ${VM_MEMORY_MB}MB, $vcpus vCPU, ${VM_DISK_GB}GB disk"
+log "creating $VM_NAME: ${VM_MEMORY_MB}MB, $vcpus vCPU, ${VM_DISK_GB}GB system disk, ${VM_DATA_DISK_GB}GB data disk"
 virt-install \
   --virt-type kvm \
   --name "$VM_NAME" \
@@ -47,6 +49,7 @@ virt-install \
   --vcpus "$vcpus" \
   --cpu host-passthrough \
   --disk "path=$disk,size=$VM_DISK_GB,bus=virtio,format=qcow2,discard=unmap" \
+  --disk "path=$data_disk,size=$VM_DATA_DISK_GB,bus=virtio,format=qcow2,discard=unmap" \
   --cdrom "$iso" \
   --boot hd,cdrom \
   --os-variant generic \

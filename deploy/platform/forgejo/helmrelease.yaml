@@ -1,0 +1,67 @@
+# Forgejo: the Git server inside the cluster. Published at
+# https://idea.internal/git/ ; pods talk to it at http://forgejo-http:3000/.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: forgejo
+spec:
+  interval: 10m
+  releaseName: forgejo
+  chartRef:
+    kind: OCIRepository
+    name: forgejo-chart
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    replicaCount: 1
+    strategy:
+      type: Recreate
+    persistence:
+      enabled: true
+      size: 5Gi
+    ingress:
+      enabled: true
+      className: cilium
+      hosts:
+        - host: idea.internal
+          paths:
+            - path: /git/
+              pathType: Prefix
+              port: http
+      tls:
+        - hosts:
+            - idea.internal
+    gitea:
+      admin:
+        existingSecret: idea-forgejo-admin
+        email: idea-admin@idea.internal
+        passwordMode: keepUpdated
+      additionalConfigFromEnvs:
+        - name: FORGEJO__database__PASSWD
+          valueFrom:
+            secretKeyRef:
+              name: idea-forgejo-db
+              key: password
+      config:
+        APP_NAME: idea git
+        server:
+          DOMAIN: idea.internal
+          ROOT_URL: https://idea.internal/git/
+          DISABLE_SSH: true
+        database:
+          DB_TYPE: postgres
+          HOST: idea-postgres:5432
+          NAME: forgejo
+          USER: forgejo
+          SSL_MODE: disable
+        service:
+          DISABLE_REGISTRATION: true
+        actions:
+          ENABLED: true
+        webhook:
+          # The controller's webhook endpoint is a cluster-internal address.
+          ALLOWED_HOST_LIST: private

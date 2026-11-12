@@ -1,4 +1,7 @@
-# Postgres and Forgejo arrive in stage 7.
+# Shared services of the trusted side (namespace idea-system).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-resources: []
+resources:
+  - namespace.yaml
+  - postgres
+  - forgejo

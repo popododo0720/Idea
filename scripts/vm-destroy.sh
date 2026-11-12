@@ -20,8 +20,9 @@ else
   log "$VM_NAME does not exist"
 fi
 
-disk="$IDEA_DATA_DIR/vm/$VM_NAME.qcow2"
-[ ! -e "$disk" ] || rm -f -- "$disk"
+for disk in "$IDEA_DATA_DIR/vm/$VM_NAME.qcow2" "$IDEA_DATA_DIR/vm/$VM_NAME-data.qcow2"; do
+  [ ! -e "$disk" ] || rm -f -- "$disk"
+done
 
 if [ "${1:-}" = "--wipe-secrets" ]; then
   log "removing Talos secrets and kubeconfig"

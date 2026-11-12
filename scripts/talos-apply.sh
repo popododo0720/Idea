@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Generate the Talos machine config into the secrets directory, apply it to
 # the freshly booted VM, bootstrap the cluster and fetch kubeconfig.
+#   talos-apply.sh            first install (node in maintenance mode)
+#   talos-apply.sh --update   re-apply a changed config to the running node
 # Nothing this script writes goes into the repo.
 
 . "$(dirname "$0")/lib.sh"
@@ -62,6 +64,13 @@ chmod 600 "$S"/*
 talosctl config endpoint "$NODE_IP" >/dev/null
 talosctl config node "$NODE_IP" >/dev/null
 talosctl validate --config "$S/controlplane.yaml" --mode metal >/dev/null
+
+# ---- 3b. --update: push the regenerated config to an already running node
+if [ "${1:-}" = "--update" ]; then
+  log "applying machine config to the running node"
+  talosctl apply-config -n "$NODE_IP" -e "$NODE_IP" --file "$S/controlplane.yaml"
+  exit 0
+fi
 
 # ---- 4. apply to the node in maintenance mode
 log "waiting for $NODE_IP to accept configuration (maintenance mode)"
