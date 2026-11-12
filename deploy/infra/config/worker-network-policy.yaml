@@ -4,12 +4,11 @@
 # internet but nothing private: not the node, not the API server, not other
 # pods, not the host's networks.
 #
-#   in:  the ingress (noVNC on 6080)
-#   out: cluster DNS, public internet
+#   in:  the ingress (noVNC on 6080), the main agent (SSH on 2222)
+#   out: cluster DNS, public internet, the in-cluster Git server
 #   everything else is dropped (and shows up in Hubble).
 #
-# Forgejo, the package cache and SSH from the main agent are added in the
-# stages that introduce them.
+# Forgejo and the package cache are added in the stage that introduces them.
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
 metadata:
@@ -25,7 +24,23 @@ spec:
         - ports:
             - port: "6080"
               protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: idea-system
+            idea.dev/role: main
+      toPorts:
+        - ports:
+            - port: "2222"
+              protocol: TCP
   egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: idea-system
+            idea.dev/role: git-fixture
+      toPorts:
+        - ports:
+            - port: "9418"
+              protocol: TCP
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system

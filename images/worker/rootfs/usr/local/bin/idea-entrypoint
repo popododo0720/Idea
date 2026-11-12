@@ -32,5 +32,17 @@ cat > "$web/index.html" <<HTML
 <title>idea worker</title>
 HTML
 
+# SSH sessions start with an empty environment. Keep what a remote dsh run
+# needs (model keys, display) in a file only this user can read; it lives in
+# the running pod, never in the image.
+umask 077
+{
+  for v in DEEPSEEK_API_KEY CLAUDE_CODE_OAUTH_TOKEN DSH_TELEMETRY_MODE DISPLAY; do
+    if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
+  done
+  printf 'export PATH=%q\n' "$PATH"
+} > "$RUN/env"
+umask 022
+
 export IDEA_GEOMETRY="${IDEA_GEOMETRY:-1440x900}"
 exec /usr/bin/supervisord -n -c /etc/idea/supervisord.conf

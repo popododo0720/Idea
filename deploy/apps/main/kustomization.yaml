@@ -1,0 +1,8 @@
+# The main agent and what it needs to reach work VMs.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - ssh-key.yaml
+  - main.yaml
+  - git-fixture.yaml

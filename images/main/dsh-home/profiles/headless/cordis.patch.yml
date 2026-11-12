@@ -1,0 +1,9 @@
+# Profile patch for the idea main agent.
+
+# worker_run: hand a task to a work VM over SSH (plugins/worker-ssh).
+- insert:
+    - id: idea-worker-ssh
+      name: '/opt/idea/plugins/worker-ssh/src/index.ts'
+      config:
+        identityFile: /etc/idea/ssh/privateKey
+        hostSuffix: .idea-work.svc

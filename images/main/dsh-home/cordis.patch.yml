@@ -1,0 +1,6 @@
+# Home-level dsh patch for the idea main agent.
+
+# Do not send session logs along with requests to the model API.
+- id: session-log-deepseek
+  config:
+    enabled: false

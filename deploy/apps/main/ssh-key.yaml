@@ -1,0 +1,102 @@
+# SSH key pair the main agent uses to log in to work VMs.
+# Generated once inside the cluster by External Secrets Operator:
+#   idea-system/idea-worker-ssh      privateKey + publicKey  (main agent)
+#   idea-work/idea-worker-ssh-pub    authorized_keys only    (work pods)
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: SSHKey
+metadata:
+  name: idea-worker-ssh
+  namespace: idea-system
+spec:
+  keyType: ed25519
+  comment: idea-main
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: idea-worker-ssh
+  namespace: idea-system
+spec:
+  # Generate once and keep: a refresh would produce a different key.
+  refreshPolicy: CreatedOnce
+  target:
+    name: idea-worker-ssh
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: SSHKey
+          name: idea-worker-ssh
+---
+# Let the work namespace read that one Secret, so it can copy out the public
+# half. Work pods themselves have no service account token.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ssh-pubkey-reader
+  namespace: idea-work
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ssh-pubkey-reader
+  namespace: idea-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["idea-worker-ssh"]
+    verbs: ["get"]
+  # The store validates its access with a self-subject review.
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["selfsubjectrulesreviews"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ssh-pubkey-reader
+  namespace: idea-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ssh-pubkey-reader
+subjects:
+  - kind: ServiceAccount
+    name: ssh-pubkey-reader
+    namespace: idea-work
+---
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  name: idea-system-secrets
+  namespace: idea-work
+spec:
+  provider:
+    kubernetes:
+      remoteNamespace: idea-system
+      server:
+        caProvider:
+          type: ConfigMap
+          name: kube-root-ca.crt
+          key: ca.crt
+      auth:
+        serviceAccount:
+          name: ssh-pubkey-reader
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: idea-worker-ssh-pub
+  namespace: idea-work
+spec:
+  refreshInterval: 1m
+  secretStoreRef:
+    kind: SecretStore
+    name: idea-system-secrets
+  target:
+    name: idea-worker-ssh-pub
+  data:
+    - secretKey: authorized_keys
+      remoteRef:
+        key: idea-worker-ssh
+        property: publicKey

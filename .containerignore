@@ -1,0 +1,6 @@
+# Keep image build contexts small and free of anything local.
+.git
+_out
+docs
+deploy
+**/node_modules

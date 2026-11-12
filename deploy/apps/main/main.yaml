@@ -1,0 +1,61 @@
+# The main agent: an ordinary (non-Kata) pod with dsh and the worker_run tool.
+# dsh headless handles one task per invocation, so the pod idles until a task
+# is started in it (by hand in stage 6, by the controller from stage 7).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: idea-main
+  namespace: idea-system
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      idea.dev/role: main
+  template:
+    metadata:
+      labels:
+        idea.dev/role: main
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: 192.168.123.1:5000/idea/main:0.1.0
+          env:
+            - name: DEEPSEEK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: idea-model-keys
+                  key: DEEPSEEK_API_KEY
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: ssh
+              mountPath: /etc/idea/ssh
+              readOnly: true
+      volumes:
+        - name: ssh
+          secret:
+            secretName: idea-worker-ssh
+            defaultMode: 0400
+            items:
+              - key: privateKey
+                path: privateKey
