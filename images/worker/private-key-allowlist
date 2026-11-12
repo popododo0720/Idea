@@ -1,0 +1,6 @@
+# Paths (regex, relative to the image root) that contain private-key text but
+# are not secrets. Each entry needs a reason.
+
+# GnuTLS embeds fixed key pairs for its FIPS/self-test routines. They are the
+# same in every copy of the Debian package.
+^usr/lib/x86_64-linux-gnu/libgnutls\.so

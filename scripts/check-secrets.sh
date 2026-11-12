@@ -111,29 +111,8 @@ fi
 
 # ------------------------------------------------ 3. real secret values
 # Collect "source<TAB>value" pairs; values stay in $TMP and in memory only.
-pairs="$TMP/pairs"; : > "$pairs"
-
-envf="$IDEA_SECRETS_DIR/env"
-if [ -f "$envf" ]; then
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in ''|'#'*) continue ;; esac
-    k="${line%%=*}"; v="${line#*=}"
-    [ "$k" != "$line" ] || continue
-    k="${k#export }"
-    v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
-    [ "${#v}" -ge 8 ] || continue
-    printf '%s\t%s\n' "env:$k" "$v" >> "$pairs"
-  done < "$envf"
-fi
-
-for y in talos/secrets.yaml talos/talosconfig kubeconfig; do
-  f="$IDEA_SECRETS_DIR/$y"
-  [ -f "$f" ] || continue
-  yq -o=json '[.. | select(tag == "!!str") | {"k": (path | join(".")), "v": .}]' "$f" |
-    jq -r --arg src "$y" '.[] | .k as $k | .v | split("\n")[]
-      | select(length >= 16) | select(test("^https?://") | not)
-      | "\($src):\($k)\t\(.)"' >> "$pairs"
-done
+pairs="$TMP/pairs"
+collect_secret_values "$pairs"
 
 if [ -s "$pairs" ]; then
   cut -f2- "$pairs" > "$TMP/all"

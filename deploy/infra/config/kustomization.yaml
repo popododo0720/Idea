@@ -4,3 +4,4 @@ resources:
   - runtimeclass.yaml
   - issuer.yaml
   - ingress-certificate.yaml
+  - worker-network-policy.yaml

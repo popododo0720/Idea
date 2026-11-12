@@ -1,0 +1,47 @@
+# Network rules for work pods (any pod labelled idea.dev/role=worker).
+#
+# A work pod runs an agent that executes arbitrary code, so it may reach the
+# internet but nothing private: not the node, not the API server, not other
+# pods, not the host's networks.
+#
+#   in:  the ingress (noVNC on 6080)
+#   out: cluster DNS, public internet
+#   everything else is dropped (and shows up in Hubble).
+#
+# Forgejo, the package cache and SSH from the main agent are added in the
+# stages that introduce them.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: idea-worker
+spec:
+  endpointSelector:
+    matchLabels:
+      idea.dev/role: worker
+  ingress:
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - port: "6080"
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*"
+    - toCIDRSet:
+        - cidr: 0.0.0.0/0
+          except:
+            - 10.0.0.0/8
+            - 172.16.0.0/12
+            - 192.168.0.0/16
+            - 169.254.0.0/16
+            - 100.64.0.0/10

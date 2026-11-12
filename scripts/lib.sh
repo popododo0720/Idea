@@ -52,3 +52,33 @@ require_idea_name() {
 net_exists()    { virsh net-info "$1" >/dev/null 2>&1; }
 net_active()    { local o; o="$(virsh net-info "$1" 2>/dev/null)" || return 1; grep -q '^Active:.*yes' <<<"$o"; }
 net_autostart() { local o; o="$(virsh net-info "$1" 2>/dev/null)" || return 1; grep -q '^Autostart:.*yes' <<<"$o"; }
+
+# collect_secret_values <file>
+#   Write "source<TAB>value" for every real secret value found in
+#   $IDEA_SECRETS_DIR. The file must live on tmpfs and be removed by the caller.
+#   Sources: env (KEY=VALUE, values of 8+ chars) and the string leaves of the
+#   Talos/Kubernetes credential files (16+ chars, URLs excluded).
+collect_secret_values() {
+  local out=$1 envf line k v y f
+  : > "$out"
+  envf="$IDEA_SECRETS_DIR/env"
+  if [ -f "$envf" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in ''|'#'*) continue ;; esac
+      k="${line%%=*}"; v="${line#*=}"
+      [ "$k" != "$line" ] || continue
+      k="${k#export }"
+      v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
+      [ "${#v}" -ge 8 ] || continue
+      printf '%s\t%s\n' "env:$k" "$v" >> "$out"
+    done < "$envf"
+  fi
+  for y in talos/secrets.yaml talos/talosconfig kubeconfig; do
+    f="$IDEA_SECRETS_DIR/$y"
+    [ -f "$f" ] || continue
+    yq -o=json '[.. | select(tag == "!!str") | {"k": (path | join(".")), "v": .}]' "$f" |
+      jq -r --arg src "$y" '.[] | .k as $k | .v | split("\n")[]
+        | select(length >= 16) | select(test("^https?://") | not)
+        | "\($src):\($k)\t\(.)"' >> "$out"
+  done
+}

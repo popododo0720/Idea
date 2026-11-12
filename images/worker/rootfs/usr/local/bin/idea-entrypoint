@@ -1,0 +1,36 @@
+#!/bin/bash
+# Start the desktop (Xvnc + XFCE), noVNC and sshd as the unprivileged user.
+#
+# IDEA_PATH_PREFIX  optional URL prefix the pod is published under, e.g.
+#                   "/vm/w1". noVNC is then served at <prefix>/ so an ingress
+#                   that cannot rewrite paths still works.
+# IDEA_GEOMETRY     desktop size, default 1440x900.
+set -euo pipefail
+
+RUN=/tmp/idea
+mkdir -p "$RUN/ssh" "$RUN/log"
+chmod 700 "$RUN" "$RUN/ssh"
+
+# SSH host key: generated per container, never part of the image.
+[ -f "$RUN/ssh/ssh_host_ed25519_key" ] \
+  || ssh-keygen -q -t ed25519 -N '' -f "$RUN/ssh/ssh_host_ed25519_key"
+
+# noVNC web root, placed under the URL prefix.
+prefix="${IDEA_PATH_PREFIX:-}"
+prefix="${prefix#/}"; prefix="${prefix%/}"
+rm -rf "$RUN/web"
+web="$RUN/web${prefix:+/$prefix}"
+mkdir -p "$web"
+for f in /usr/share/novnc/*; do
+  ln -s "$f" "$web/$(basename "$f")"
+done
+ws_path="${prefix:+$prefix/}websockify"
+cat > "$web/index.html" <<HTML
+<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=1&resize=remote&path=${ws_path}">
+<title>idea worker</title>
+HTML
+
+export IDEA_GEOMETRY="${IDEA_GEOMETRY:-1440x900}"
+exec /usr/bin/supervisord -n -c /etc/idea/supervisord.conf
