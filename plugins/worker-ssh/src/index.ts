@@ -63,6 +63,7 @@ export function apply(ctx: Context, config: Config = {}) {
     output: {
       schema: {
         type: 'object',
+        additionalProperties: false,
         properties: {
           completed: { type: 'boolean', required: true },
           exitCode: { type: 'number', required: true },

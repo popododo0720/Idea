@@ -34,7 +34,10 @@ RUN cd /opt/dsh \
 
 RUN useradd --create-home --uid 1000 --shell /bin/bash idea
 
+# Plugins are loaded from source by absolute path. They import dsh's own
+# packages, which Node resolves through this link to the dsh installation.
 COPY plugins/ /opt/idea/plugins/
+RUN ln -s /opt/dsh/node_modules /opt/idea/plugins/node_modules
 COPY examples/ /opt/idea/examples/
 
 USER 1000:1000
