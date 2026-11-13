@@ -114,6 +114,11 @@ fj() { # fj METHOD PATH [JSON]
     ${body:+-H 'Content-Type: application/json' --data "$body"} \
     "https://$INGRESS_HOST/git/api/v1$path"
 }
+# Installs ship no project: the test creates the example one from its seed.
+page -K "$T/apirc" -X POST -H "Content-Type: application/json" \
+  --data '{"name":"hello-calc","description":"Example project (a small calculator with tests).","seed":"hello-calc"}' \
+  "${url}api/v1/projects" | jq -e .name >/dev/null || die "could not create the example project"
+mark "example project hello-calc created through the API"
 repo_ready() { fj GET /repos/idea/hello-calc/hooks | jq -e 'length >= 1'; }
 wait_for 1800 "Forgejo is up and the repository is prepared" repo_ready
 

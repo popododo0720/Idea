@@ -83,12 +83,16 @@ func (c *Controller) projectForRepo(ctx context.Context, fullName string) (*proj
 	return &p, nil
 }
 
-func (c *Controller) createProject(ctx context.Context, name, description string) (project, error) {
+func (c *Controller) createProject(ctx context.Context, name, description, seed string) (project, error) {
+	spec := map[string]any{"description": description}
+	if seed != "" {
+		spec["seed"] = seed
+	}
 	obj := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "idea.dev/v1alpha1",
 		"kind":       "Project",
 		"metadata":   map[string]any{"name": name, "namespace": c.cfg.SystemNS},
-		"spec":       map[string]any{"description": description},
+		"spec":       spec,
 	}}
 	u, err := c.dyn.Resource(projectGVR).Namespace(c.cfg.SystemNS).Create(ctx, obj, metav1.CreateOptions{})
 	if err != nil {

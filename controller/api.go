@@ -262,10 +262,19 @@ func (c *Controller) apiHandler() http.Handler {
 		var in struct {
 			Name        string `json:"name"`
 			Description string `json:"description"`
+			// Seed names an example repository the project starts from
+			// (images/controller examples); tests use it, installs ship none.
+			Seed string `json:"seed"`
 		}
 		if err := readBody(r, &in); err != nil {
 			writeError(w, 400, err.Error())
 			return
+		}
+		if in.Seed != "" {
+			if _, err := c.seedDir(in.Seed); err != nil {
+				writeError(w, 400, "seed: "+err.Error())
+				return
+			}
 		}
 		in.Name = strings.ToLower(strings.TrimSpace(in.Name))
 		if !projectName.MatchString(in.Name) {
@@ -276,7 +285,7 @@ func (c *Controller) apiHandler() http.Handler {
 			writeError(w, 400, "description is too long")
 			return
 		}
-		p, err := c.createProject(r.Context(), in.Name, strings.TrimSpace(in.Description))
+		p, err := c.createProject(r.Context(), in.Name, strings.TrimSpace(in.Description), in.Seed)
 		if apierrors.IsAlreadyExists(err) {
 			writeError(w, 409, "a project with that name exists")
 			return
