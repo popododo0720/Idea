@@ -1,0 +1,40 @@
+#!/bin/bash
+# Run the machine's agent dsh: the web profile, served over TLS on the pod
+# address. Projects are dsh workspaces under $STATE/projects; sessions and
+# settings (model keys added in the dsh UI) live in $STATE/dsh. $STATE is the
+# persistent volume.
+#
+# Environment:
+#   POD_IP            address to bind (downward API)
+#   DSH_PORT          listen port, default 4443
+#   DSH_TRUSTED_HOST  the authority clients use (Host header), e.g. the Service name
+#   FORGEJO_API, FORGEJO_TOKEN, FORGEJO_USER   the in-cluster Forgejo
+# The launch URL dsh prints (with its one-time-per-process token) is how the
+# idea controller signs in; it goes to the pod log only.
+set -euo pipefail
+
+: "${POD_IP:?POD_IP is not set}"
+STATE="${IDEA_STATE:-/home/idea/state}"
+export DSH_HOME="$STATE/dsh"
+mkdir -p "$DSH_HOME" "$STATE/projects"
+
+# Git: identity, and credentials for Forgejo taken from the environment at
+# use time (the token is never written to disk).
+git config --global user.name "${FORGEJO_USER:-idea-worker}"
+git config --global user.email "${FORGEJO_USER:-idea-worker}@idea.internal"
+git config --global init.defaultBranch main
+git config --global credential.helper \
+  '!f() { test "$1" = get || exit 0; echo "username=${FORGEJO_USER:-idea-worker}"; echo "password=${FORGEJO_TOKEN}"; }; f'
+
+tls=()
+if [ -f /etc/idea/tls/tls.crt ] && [ -f /etc/idea/tls/tls.key ]; then
+  tls=(--tls-cert /etc/idea/tls/tls.crt --tls-key /etc/idea/tls/tls.key)
+fi
+trusted=()
+if [ -n "${DSH_TRUSTED_HOST:-}" ]; then
+  trusted=(--trusted-host "$DSH_TRUSTED_HOST")
+fi
+
+cd "$STATE/projects"
+exec dsh --profile web --patch /etc/idea/dsh/web.patch.yml \
+  --no-open --host "$POD_IP" --port "${DSH_PORT:-4443}" "${trusted[@]}" "${tls[@]}"

@@ -1,6 +1,6 @@
 // idea controller: turns a Forgejo issue into a merged pull request.
 //
-//	issue opened ──webhook──▶ Task ──▶ work VM ──▶ main agent delegates
+//	issue opened ──webhook──▶ Task ──▶ session in the agent dsh
 //	                                   ──▶ pull request ──▶ tests ──▶ merge
 //
 // Everything it needs to remember is in the Task resource's status (and, for
@@ -16,6 +16,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -50,7 +51,6 @@ type Config struct {
 	SystemNS      string
 	WorkNS        string
 	WorkerImage   string
-	MainImage     string
 	GateMode      string // "actions": wait for a Forgejo Actions status; "controller": run the tests ourselves
 	MaxActive     int
 	DatabaseURL   string
@@ -96,7 +96,6 @@ func loadConfig() Config {
 		SystemNS:      env("SYSTEM_NAMESPACE", "idea-system"),
 		WorkNS:        env("WORK_NAMESPACE", "idea-work"),
 		WorkerImage:   mustEnv("WORKER_IMAGE"),
-		MainImage:     mustEnv("MAIN_IMAGE"),
 		GateMode:      env("GATE_MODE", "actions"),
 		MaxActive:     max,
 		DatabaseURL:   db.String() + "?sslmode=disable",
@@ -109,6 +108,7 @@ type Controller struct {
 	dyn   dynamic.Interface
 	fj    *Forgejo
 	store *Store
+	dsh   *dshClient
 }
 
 func b64(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
@@ -139,6 +139,7 @@ func main() {
 		dyn:  dynamic.NewForConfigOrDie(rc),
 		fj:   NewForgejo(cfg.ForgejoURL, cfg.AdminUser, cfg.AdminPass),
 	}
+	c.dsh = &dshClient{c: c}
 
 	// PostgreSQL may still be starting: keep trying.
 	for {
@@ -365,11 +366,19 @@ func (c *Controller) reconcileForgejo(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("projects: %w", err)
 	}
+	// The agent dsh serves the machine's API certificate.
+	if err := c.syncDshTLS(ctx); err != nil {
+		return fmt.Errorf("agent dsh certificate: %w", err)
+	}
 	for _, p := range projects {
 		if err := c.reconcileProject(ctx, p); err != nil {
 			slog.Warn("project", "project", p.Name, "err", err.Error())
 			c.setProjectStatus(ctx, p, false, err.Error())
 			continue
+		}
+		// Every project is a workspace in the agent dsh, ready before its first task.
+		if _, err := c.dsh.ensureWorkspace(ctx, p.Name); err != nil && !errors.Is(err, errDshNotReady) {
+			slog.Warn("project workspace", "project", p.Name, "err", err.Error())
 		}
 		c.setProjectStatus(ctx, p, true, "")
 	}

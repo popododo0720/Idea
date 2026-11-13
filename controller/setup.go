@@ -134,9 +134,9 @@ type setupView struct {
 }
 
 var setupPage = template.Must(template.New("setup").Parse(`<!doctype html>
-<html lang="ko"><head><meta charset="utf-8">
+<html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>idea 설정</title>
+<title>idea setup</title>
 <link rel="stylesheet" href="/design/idea.css">
 </head><body>
 <main class="page-narrow" style="max-width:560px">
@@ -144,40 +144,40 @@ var setupPage = template.Must(template.New("setup").Parse(`<!doctype html>
 <div class="stack">
 {{if .Error}}<div class="alert alert-bad"><div>{{.Error}}</div></div>{{end}}
 {{if not .Available}}
-<div class="stack-sm"><h1>설정 코드가 없습니다</h1>
-<p class="muted">이 기기는 설치 ISO로 만들어지지 않았습니다. 클러스터 관리자가 직접 설정해야 합니다.</p></div>
+<div class="stack-sm"><h1>No setup code</h1>
+<p class="muted">This machine was not installed from the idea ISO. Its cluster administrator has to set it up by hand.</p></div>
 {{else if not .Unlocked}}
-<div class="stack-sm"><h1>설정 코드 입력</h1>
-<p class="muted">기기 콘솔 화면의 <span class="mono">setup code</span> 줄에 있는 12자리 코드입니다.</p></div>
+<div class="stack-sm"><h1>Enter the setup code</h1>
+<p class="muted">The 12-character code on the <span class="mono">setup code</span> line of the machine's console.</p></div>
 <form class="stack" method="post" action="/">
-<div class="field"><label class="label" for="code">설정 코드</label>
+<div class="field"><label class="label" for="code">Setup code</label>
 <input class="input code-input" id="code" name="code" placeholder="xxxx-xxxx-xxxx" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" autofocus required></div>
-<button class="btn btn-primary btn-block" type="submit">계속</button>
+<button class="btn btn-primary btn-block" type="submit">Continue</button>
 </form>
 {{else}}
-<div class="stack-sm"><h1>dsh에 연결하기</h1>
-<p class="muted">작업, 세션, 프로젝트, 모델 키는 모두 DeepSeek Harness의 idea 패널에서 다룹니다. 쓰는 PC마다 한 번 연결하면 됩니다.</p></div>
+<div class="stack-sm"><h1>Connect your dsh</h1>
+<p class="muted">Projects, tasks and their sessions show up in the idea panel of DeepSeek Harness, as dsh draws them. Model keys are set in that dsh's settings. Connect once per computer.</p></div>
 <ol class="steps">
-<li class="now"><div class="stack-sm"><strong>플러그인 설치</strong>
+<li class="now"><div class="stack-sm"><strong>Install the plugin</strong>
 <div class="copy"><span class="mono">dsh plugin add {{.Plugin}}</span></div></div></li>
-<li class="todo"><div class="stack-sm"><strong>idea 패널에서 이 기기 연결</strong>
-<dl class="kv"><dt>주소</dt><dd class="mono">https://{{.Addr}}</dd><dt>설정 코드</dt><dd class="mono">{{.Code}}</dd></dl></div></li>
+<li class="todo"><div class="stack-sm"><strong>Connect this machine in the idea panel</strong>
+<dl class="kv"><dt>Address</dt><dd class="mono">https://{{.Addr}}</dd><dt>Setup code</dt><dd class="mono">{{.Code}}</dd></dl></div></li>
 </ol>
 
 <div class="card"><div class="card-head"><h2>Git (Forgejo)</h2></div><div class="card-body">
 <dl class="kv">
-<dt>주소</dt><dd class="mono">https://{{.Host}}/git/</dd>
-<dt>계정</dt><dd class="mono">{{.AdminUser}}</dd>
-<dt>비밀번호</dt><dd class="mono">{{.AdminPass}}</dd>
+<dt>Address</dt><dd class="mono">https://{{.Host}}/git/</dd>
+<dt>Account</dt><dd class="mono">{{.AdminUser}}</dd>
+<dt>Password</dt><dd class="mono">{{.AdminPass}}</dd>
 </dl>
-<p class="hint">DNS나 hosts 파일에서 <span class="mono">{{.Host}}</span>을 <span class="mono">{{.IP}}</span>로 연결하세요. 인증서는 이 기기가 직접 만든 것이라 브라우저가 경고합니다.</p>
+<p class="hint">Point <span class="mono">{{.Host}}</span> at <span class="mono">{{.IP}}</span> in your DNS or hosts file. The certificate is made by this machine, so the browser warns about it.</p>
 </div></div>
 
 {{if .HasTalos}}
-<div class="card"><div class="card-head"><h2>관리자 접근</h2></div><div class="card-body stack-sm">
-<p class="small muted">기기(Talos)와 Kubernetes를 직접 다루는 설정 파일입니다. 이 파일은 기기의 모든 권한입니다.</p>
+<div class="card"><div class="card-head"><h2>Administrator access</h2></div><div class="card-body stack-sm">
+<p class="small muted">The configuration for managing the machine (Talos) and Kubernetes directly. Whoever has this file has full control of the machine.</p>
 <form method="post" action="/talosconfig"><input type="hidden" name="code" value="{{.Code}}">
-<button class="btn" type="submit">talosconfig 내려받기</button></form>
+<button class="btn" type="submit">Download talosconfig</button></form>
 <p class="xs subtle mono">talosctl --talosconfig talosconfig -e {{.IP}} -n {{.IP}} kubeconfig</p>
 </div></div>
 {{end}}
@@ -213,11 +213,11 @@ func (c *Controller) unlock(w http.ResponseWriter, r *http.Request) (setupView, 
 		return v, "", false
 	case err != nil:
 		slog.Warn("setup secret", "err", err.Error())
-		v.Error = "설정 코드를 확인하지 못했습니다. 잠시 뒤 다시 시도하세요."
+		v.Error = "Could not check the setup code. Try again in a moment."
 		c.renderSetup(w, r, v)
 		return v, "", false
 	case !ok:
-		v.Error = "설정 코드가 맞지 않습니다."
+		v.Error = "Wrong setup code."
 		c.renderSetup(w, r, v)
 		return v, "", false
 	}

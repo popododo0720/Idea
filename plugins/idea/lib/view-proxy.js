@@ -43,14 +43,16 @@ function cookieValue(header, name) {
 
 /**
  * @param {object} opts
- * @param {() => Promise<{url: string, login: string, cert?: string}>} opts.upstream
- *   where the machine's dsh is, a fresh login URL for it, and the pinned certificate.
+ * @param {() => Promise<{url: string, login: string, authority?: string, cert?: string}>} opts.upstream
+ *   where the machine's dsh listens (url), the path of a fresh login (login),
+ *   the Host it answers to when that differs from the address (authority),
+ *   and the pinned certificate.
  */
 export function createViewProxy({ upstream, log = () => {} }) {
   const viewSecret = randomBytes(32).toString('hex')
   const tickets = new Map() // ticket -> expiry
   let jar = ''              // upstream cookies: "a=b; c=d"
-  let target                // { url: URL, cert }
+  let target                // { url: URL, authority: string, origin: string, cert }
   let server, port
 
   function tlsOptions() {
@@ -82,9 +84,11 @@ export function createViewProxy({ upstream, log = () => {} }) {
   // Log in to the machine's dsh: its login URL sets the session cookie.
   async function login() {
     const up = await upstream()
-    target = { url: new URL(up.url), cert: up.cert }
+    const url = new URL(up.url)
+    const authority = up.authority || url.host
+    target = { url, authority, origin: `${url.protocol}//${authority}`, cert: up.cert }
     await new Promise((resolve, reject) => {
-      const req = send('GET', new URL(up.login), { host: target.url.host, accept: 'text/html' })
+      const req = send('GET', new URL(up.login, url), { host: authority, accept: 'text/html' })
       req.on('response', res => {
         absorbCookies(res.headers['set-cookie'])
         res.resume()
@@ -102,10 +106,10 @@ export function createViewProxy({ upstream, log = () => {} }) {
       if (HOP.has(k) || k === 'cookie' || k === 'host' || k === 'origin' || k === 'referer') continue
       h[k] = v
     }
-    h.host = target.url.host
-    if (reqHeaders.origin) h.origin = target.url.origin
+    h.host = target.authority
+    if (reqHeaders.origin) h.origin = target.origin
     if (reqHeaders.referer) {
-      try { const r = new URL(reqHeaders.referer); h.referer = target.url.origin + r.pathname + r.search } catch { /* drop */ }
+      try { const r = new URL(reqHeaders.referer); h.referer = target.origin + r.pathname + r.search } catch { /* drop */ }
     }
     if (jar) h.cookie = jar
     return h

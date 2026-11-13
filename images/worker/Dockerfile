@@ -43,7 +43,7 @@ RUN curl -fsSL -o /tmp/node.tar.xz \
 RUN apt-get update \
  && apt-get install -y --no-install-recommends bubblewrap \
  && rm -rf /var/lib/apt/lists/*
-COPY dsh/package.json dsh/package-lock.json /opt/dsh/
+COPY images/worker/dsh/package.json images/worker/dsh/package-lock.json /opt/dsh/
 RUN cd /opt/dsh \
  && npm ci --no-audit --no-fund \
  && npm cache clean --force \
@@ -65,9 +65,14 @@ RUN rm -f /etc/ssh/ssh_host_* \
  && mkdir -p -m 1777 /tmp/.X11-unix \
  && useradd --create-home --uid 1000 --shell /bin/bash idea
 
-COPY rootfs/ /
+COPY images/worker/rootfs/ /
 RUN chmod 0755 /usr/local/bin/idea-entrypoint /usr/local/bin/idea-pr /usr/local/bin/idea-runner \
-      /usr/local/bin/idea-claude-subagent
+      /usr/local/bin/idea-claude-subagent /usr/local/bin/idea-dsh
+
+# dsh plugins of the agent dsh (idea-dsh), loaded from source by absolute
+# path. They import dsh's own packages, which Node resolves through this link.
+COPY plugins/forgejo/ /opt/idea/plugins/forgejo/
+RUN ln -s /opt/dsh/node_modules /opt/idea/plugins/node_modules
 
 USER 1000:1000
 WORKDIR /home/idea
@@ -95,8 +100,8 @@ RUN dsh --profile headless --dump-config >/dev/null \
  && rm -rf /home/idea/.cache /home/idea/.npm /home/idea/.local/share/pnpm \
            /home/idea/.dsh/sessions /home/idea/.dsh/storages \
  && mkdir -p /home/idea/work
-COPY --chown=1000:1000 dsh/home/ /home/idea/.dsh/
+COPY --chown=1000:1000 images/worker/dsh/home/ /home/idea/.dsh/
 
-# 6080: noVNC (HTTP + WebSocket)   2222: sshd
-EXPOSE 6080 2222
+# 6080: noVNC (HTTP + WebSocket)   2222: sshd   4443: agent dsh (idea-dsh)
+EXPOSE 6080 2222 4443
 ENTRYPOINT ["/usr/local/bin/idea-entrypoint"]

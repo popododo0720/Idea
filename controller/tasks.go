@@ -2,14 +2,18 @@ package main
 
 // The Task state machine. One pass looks at every Task and moves it at most
 // one step. Each step is idempotent: it derives what to do from the Task's
-// status and from what exists in the cluster, so a pass can be repeated or
-// interrupted at any point.
+// status and from what exists in the cluster and the agent dsh, so a pass can
+// be repeated or interrupted at any point.
 //
-//	Pending ─▶ WorkerStarting ─▶ Working ─▶ Gate ─▶ Done
-//	                 └──────────────┴─────────┴────▶ Failed
+// A task runs as a session in the agent dsh (dsh.go), in its project's
+// workspace, so the owner can watch and steer it from their own dsh.
+//
+//	Pending ─▶ Working ─▶ Gate ─▶ Done
+//	   └──────────┴─────────┴────▶ Failed
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -22,14 +26,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 var taskGVR = schema.GroupVersionResource{Group: "idea.dev", Version: "v1alpha1", Resource: "tasks"}
 
+// retryMarker separates the owner's retry instruction in a task's body.
+const retryMarker = "\n\n---\nFollow-up instruction from the owner:\n"
+
 const (
 	phasePending  = "Pending"
-	phaseStarting = "WorkerStarting"
+	phaseStarting = "WorkerStarting" // older controllers; treated as Pending
 	phaseWorking  = "Working"
 	phaseGate     = "Gate"
 	phaseDone     = "Done"
@@ -71,17 +77,20 @@ func (c *Controller) createTask(ctx context.Context, repo string, issue int64, t
 }
 
 type taskView struct {
-	obj    *unstructured.Unstructured
-	name   string
-	repo   string
-	issue  int64
-	title  string
-	body   string
-	phase  string
-	since  time.Time // when the current phase began
-	pr     int64
-	sha    string
-	branch string
+	obj     *unstructured.Unstructured
+	name    string
+	repo    string
+	issue   int64
+	title   string
+	body    string
+	phase   string
+	since   time.Time // when the current phase began
+	pr      int64
+	sha     string
+	branch  string
+	session string // agent dsh session id, once created
+	prompts int64  // prompts sent to the session (initial + retries)
+	cursor  int64  // session log position when the last prompt was sent
 }
 
 func viewOf(u *unstructured.Unstructured) taskView {
@@ -96,6 +105,12 @@ func viewOf(u *unstructured.Unstructured) taskView {
 	}
 	t.pr, _, _ = unstructured.NestedInt64(u.Object, "status", "pullRequest")
 	t.sha, _, _ = unstructured.NestedString(u.Object, "status", "headSHA")
+	t.session, _, _ = unstructured.NestedString(u.Object, "status", "session")
+	t.prompts, _, _ = unstructured.NestedInt64(u.Object, "status", "prompts")
+	t.cursor, _, _ = unstructured.NestedInt64(u.Object, "status", "promptCursor")
+	if t.phase == phaseStarting {
+		t.phase = phasePending
+	}
 	if s, _, _ := unstructured.NestedString(u.Object, "status", "phaseSince"); s != "" {
 		t.since, _ = time.Parse(time.RFC3339, s)
 	}
@@ -106,9 +121,10 @@ func viewOf(u *unstructured.Unstructured) taskView {
 	return t
 }
 
-func (t taskView) worker() string { return "w-" + t.name }
-func (t taskView) mainJob() string { return "m-" + t.name }
 func (t taskView) gateJob() string { return "g-" + t.name }
+
+// project is the repository name, which is also the project's name.
+func (t taskView) project() string { return t.repo[strings.LastIndex(t.repo, "/")+1:] }
 
 // setPhase writes the new phase (and extra status fields) to the Task.
 func (c *Controller) setPhase(ctx context.Context, t taskView, phase, message string, extra map[string]any) error {
@@ -121,7 +137,6 @@ func (c *Controller) setPhase(ctx context.Context, t taskView, phase, message st
 	}
 	status["phase"] = phase
 	status["message"] = message
-	status["worker"] = t.worker()
 	status["branch"] = t.branch
 	for k, v := range extra {
 		status[k] = v
@@ -145,7 +160,7 @@ func (c *Controller) reconcileTasks(ctx context.Context) error {
 	active := 0
 	for i := range list.Items {
 		switch viewOf(&list.Items[i]).phase {
-		case phaseStarting, phaseWorking, phaseGate:
+		case phaseWorking, phaseGate:
 			active++
 		}
 	}
@@ -167,49 +182,29 @@ func (c *Controller) reconcileTasks(ctx context.Context) error {
 func (c *Controller) step(ctx context.Context, t taskView) error {
 	switch t.phase {
 	case phasePending:
-		// Without a model key the main agent cannot start; wait instead of
-		// starting a work VM that would sit idle until its deadline.
-		if !c.hasDeepSeekKey(ctx) {
-			const waiting = "waiting for a DeepSeek API key (set it in the dsh idea panel)"
-			if msg, _, _ := unstructured.NestedString(t.obj.Object, "status", "message"); msg == waiting {
-				return nil
-			}
-			return c.setPhase(ctx, t, phasePending, waiting, nil)
-		}
-		if err := c.ensureWorker(ctx, t); err != nil {
-			return err
-		}
-		return c.setPhase(ctx, t, phaseStarting, "work VM requested", nil)
+		return c.startSession(ctx, t)
 
-	case phaseStarting:
-		pod, err := c.kube.CoreV1().Pods(c.cfg.WorkNS).Get(ctx, t.worker(), metav1.GetOptions{})
-		if apierrors.IsNotFound(err) {
-			return c.ensureWorker(ctx, t) // deleted by hand: bring it back
-		}
+	case phaseWorking:
+		st, err := c.dsh.state(ctx, t.session)
 		if err != nil {
+			if errors.Is(err, errDshNotReady) {
+				return nil // the agent dsh is restarting; the session survives
+			}
 			return err
 		}
-		if !podReady(pod) {
-			if time.Since(t.since) > 10*time.Minute {
-				return c.fail(ctx, t, "the work VM did not become ready in 10 minutes")
+		if len(st.PendingInput) > 0 {
+			const asking = "the agent is asking a question: answer it in the session"
+			if msg, _, _ := unstructured.NestedString(t.obj.Object, "status", "message"); msg != asking {
+				return c.setPhase(ctx, t, phaseWorking, asking, nil)
 			}
 			return nil
 		}
-		if err := c.ensureMainJob(ctx, t); err != nil {
-			return err
-		}
-		return c.setPhase(ctx, t, phaseWorking, "main agent is delegating to "+t.worker(), nil)
-
-	case phaseWorking:
-		job, err := c.kube.BatchV1().Jobs(c.cfg.SystemNS).Get(ctx, t.mainJob(), metav1.GetOptions{})
-		if apierrors.IsNotFound(err) {
-			return c.ensureMainJob(ctx, t)
-		}
-		if err != nil {
-			return err
-		}
-		if job.Status.Succeeded == 0 && job.Status.Failed == 0 {
-			return nil // still running
+		if st.busy() || st.Cursor <= t.cursor {
+			if time.Since(t.since) > 90*time.Minute {
+				_ = c.dsh.cancel(ctx, t.session)
+				return c.fail(ctx, t, "the agent did not finish in 90 minutes")
+			}
+			return nil // still working (or the prompt has not started yet)
 		}
 		// What counts is whether a pull request exists, not what the agent said.
 		pr, err := c.fj.FindPR(ctx, t.repo, t.branch)
@@ -217,7 +212,7 @@ func (c *Controller) step(ctx context.Context, t taskView) error {
 			return err
 		}
 		if pr == nil {
-			return c.fail(ctx, t, "the worker finished without opening a pull request")
+			return c.fail(ctx, t, "the agent stopped without opening a pull request (see its session)")
 		}
 		return c.setPhase(ctx, t, phaseGate, fmt.Sprintf("pull request #%d opened; waiting for tests", pr.Number),
 			map[string]any{"pullRequest": pr.Number, "headSHA": pr.Head.SHA, "pullRequestURL": pr.URL})
@@ -226,6 +221,53 @@ func (c *Controller) step(ctx context.Context, t taskView) error {
 		return c.gate(ctx, t)
 	}
 	return nil
+}
+
+// startSession sends the task to the agent dsh: the first time as a new
+// session in the project's workspace, on a retry as a follow-up prompt in
+// the same session, so the conversation stays in one place.
+func (c *Controller) startSession(ctx context.Context, t taskView) error {
+	session := t.session
+	if session == "" {
+		ws, err := c.dsh.ensureWorkspace(ctx, t.project())
+		if errors.Is(err, errDshNotReady) {
+			return c.waitMessage(ctx, t, "waiting for the agent dsh to start")
+		}
+		if err != nil {
+			return err
+		}
+		// A fixed id: creating it again (after a crash) returns the same session.
+		session, err = c.dsh.createSession(ctx, ws, "idea-"+t.name, fmt.Sprintf("#%d %s", t.issue, t.title))
+		if err != nil {
+			return err
+		}
+	}
+	st, err := c.dsh.state(ctx, session)
+	if errors.Is(err, errDshNotReady) {
+		return c.waitMessage(ctx, t, "waiting for the agent dsh to start")
+	}
+	if err != nil {
+		return err
+	}
+	text := c.taskPrompt(t)
+	if t.prompts > 0 {
+		text = c.retryPrompt(t)
+	}
+	// The request id makes a repeated send (after a crash) the same message.
+	if err := c.dsh.prompt(ctx, session, fmt.Sprintf("idea-%s-%d", t.name, t.prompts+1), text); err != nil {
+		return err
+	}
+	return c.setPhase(ctx, t, phaseWorking, "the agent is working in its dsh session", map[string]any{
+		"session": session, "prompts": t.prompts + 1, "promptCursor": st.Cursor,
+	})
+}
+
+// waitMessage records why a pending task is waiting, once.
+func (c *Controller) waitMessage(ctx context.Context, t taskView, msg string) error {
+	if cur, _, _ := unstructured.NestedString(t.obj.Object, "status", "message"); cur == msg {
+		return nil
+	}
+	return c.setPhase(ctx, t, phasePending, msg, nil)
 }
 
 // gate merges the pull request only when its tests passed.
@@ -281,15 +323,13 @@ func (c *Controller) fail(ctx context.Context, t taskView, message string) error
 	return c.setPhase(ctx, t, phaseFailed, message, nil)
 }
 
-// cleanup removes everything a task created in the cluster.
+// cleanup stops what a task runs. Its dsh session stays, as its history.
 func (c *Controller) cleanup(ctx context.Context, t taskView) {
 	bg := metav1.DeletePropagationBackground
-	del := metav1.DeleteOptions{PropagationPolicy: &bg}
-	_ = c.kube.CoreV1().Pods(c.cfg.WorkNS).Delete(ctx, t.worker(), del)
-	_ = c.kube.CoreV1().Services(c.cfg.WorkNS).Delete(ctx, t.worker(), del)
-	_ = c.kube.BatchV1().Jobs(c.cfg.WorkNS).Delete(ctx, t.gateJob(), del)
-	_ = c.kube.BatchV1().Jobs(c.cfg.SystemNS).Delete(ctx, t.mainJob(), del)
-	_ = c.kube.CoreV1().ConfigMaps(c.cfg.SystemNS).Delete(ctx, t.mainJob(), del)
+	_ = c.kube.BatchV1().Jobs(c.cfg.WorkNS).Delete(ctx, t.gateJob(), metav1.DeleteOptions{PropagationPolicy: &bg})
+	if t.session != "" && t.phase == phaseWorking {
+		_ = c.dsh.cancel(ctx, t.session)
+	}
 }
 
 func podReady(p *corev1.Pod) bool {
@@ -308,7 +348,7 @@ func ignoreExists(err error) error {
 	return err
 }
 
-// ------------------------------------------------------------- work VM
+// ---------------------------------------------------------------- pods
 
 func restrictedContainer() *corev1.SecurityContext {
 	return &corev1.SecurityContext{
@@ -327,175 +367,59 @@ func restrictedPod() *corev1.PodSecurityContext {
 	}
 }
 
-func secretEnv(name, secret, key string, optional bool) corev1.EnvVar {
-	return corev1.EnvVar{Name: name, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
-		LocalObjectReference: corev1.LocalObjectReference{Name: secret}, Key: key, Optional: ptr(optional)}}}
-}
-
 // forgejoHost is how pods in the work namespace reach Forgejo.
 func (c *Controller) forgejoHost() string {
 	return "forgejo-http." + c.cfg.SystemNS + ".svc:3000"
 }
 
-func (c *Controller) ensureWorker(ctx context.Context, t taskView) error {
-	labels := map[string]string{
-		"idea.dev/role":                "worker", // selects the worker network policy
-		"idea.dev/task":                t.name,
-		"app.kubernetes.io/managed-by": "idea-controller",
-	}
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: t.worker(), Labels: labels},
-		Spec: corev1.PodSpec{
-			RuntimeClassName:             ptr("kata"),
-			AutomountServiceAccountToken: ptr(false),
-			EnableServiceLinks:           ptr(false),
-			RestartPolicy:                corev1.RestartPolicyNever,
-			SecurityContext:              restrictedPod(),
-			Containers: []corev1.Container{{
-				Name:  "desktop",
-				Image: c.cfg.WorkerImage,
-				Env: []corev1.EnvVar{
-					{Name: "IDEA_PATH_PREFIX", Value: "/vm/" + t.worker()},
-					secretEnv("DEEPSEEK_API_KEY", "idea-model-keys", "DEEPSEEK_API_KEY", true),
-					secretEnv("CLAUDE_CODE_OAUTH_TOKEN", "idea-model-keys", "CLAUDE_CODE_OAUTH_TOKEN", true),
-					secretEnv("FORGEJO_TOKEN", workerTokenSecret, "token", false),
-					{Name: "FORGEJO_API", Value: "http://" + c.forgejoHost() + "/api/v1"},
-					{Name: "IDEA_REPO", Value: t.repo},
-					{Name: "IDEA_BRANCH", Value: t.branch},
-					// $(FORGEJO_TOKEN) is expanded by Kubernetes inside the pod.
-					{Name: "IDEA_REPO_URL", Value: "http://" + workerUser + ":$(FORGEJO_TOKEN)@" + c.forgejoHost() + "/" + t.repo + ".git"},
-				},
-				Ports: []corev1.ContainerPort{
-					{Name: "novnc", ContainerPort: 6080},
-					{Name: "ssh", ContainerPort: 2222},
-				},
-				SecurityContext: restrictedContainer(),
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("2Gi")},
-					Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourceMemory: resource.MustParse("2Gi")},
-				},
-				ReadinessProbe: &corev1.Probe{
-					ProbeHandler:  corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromString("ssh")}},
-					PeriodSeconds: 3,
-				},
-				VolumeMounts: []corev1.VolumeMount{
-					{Name: "shm", MountPath: "/dev/shm"},
-					{Name: "ssh-authorized", MountPath: "/etc/idea/authorized_keys", ReadOnly: true},
-				},
-			}},
-			Volumes: []corev1.Volume{
-				{Name: "shm", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{
-					Medium: corev1.StorageMediumMemory, SizeLimit: ptr(resource.MustParse("1Gi"))}}},
-				{Name: "ssh-authorized", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
-					SecretName: "idea-worker-ssh-pub"}}},
-			},
-		},
-	}
-	if _, err := c.kube.CoreV1().Pods(c.cfg.WorkNS).Create(ctx, pod, metav1.CreateOptions{}); ignoreExists(err) != nil {
-		return fmt.Errorf("work pod: %w", err)
-	}
-	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Name: t.worker(), Labels: labels},
-		Spec: corev1.ServiceSpec{
-			Selector: map[string]string{"idea.dev/task": t.name, "idea.dev/role": "worker"},
-			Ports: []corev1.ServicePort{
-				{Name: "ssh", Port: 2222, TargetPort: intstr.FromString("ssh")},
-				{Name: "novnc", Port: 6080, TargetPort: intstr.FromString("novnc")},
-			},
-		},
-	}
-	if _, err := c.kube.CoreV1().Services(c.cfg.WorkNS).Create(ctx, svc, metav1.CreateOptions{}); ignoreExists(err) != nil {
-		return fmt.Errorf("work service: %w", err)
-	}
-	return nil
-}
+// ------------------------------------------------------------ the prompts
 
-// ---------------------------------------------------------- main agent job
+func (c *Controller) taskPrompt(t taskView) string {
+	return fmt.Sprintf(`You are an autonomous software engineer. This workspace is the project %q.
 
-func (c *Controller) workerTask(t taskView) string {
-	return fmt.Sprintf(`You are an autonomous software engineer working inside a disposable VM.
-
-Repository: %s
+Repository: %s (Forgejo, http://%s/%s.git)
 Issue #%d: %s
 
 %s
 
 Do exactly this:
-1. Clone the repository: git clone "$IDEA_REPO_URL" ~/work/repo   (the URL in that environment variable already carries credentials; never print it)
-2. In ~/work/repo run: git config user.name idea-worker && git config user.email idea-worker@idea.internal
-3. Create the branch %s from main.
-4. Implement what the issue asks, including tests for it. Follow the issue literally, even if it asks for something that makes a test fail.
-5. Run the tests with: npm test
-6. Commit your work with a clear message and push the branch: git push -u origin %s
-7. Open the pull request by running exactly: idea-pr "%s (#%d)" "Closes #%d"
-8. Reply with the pull request URL and whether the tests passed.
+1. If this directory is not a Git checkout yet, clone the repository into it: git clone http://%s/%s.git .
+   Git already has credentials for this server; never print or write tokens.
+2. Start from the latest main, without leftovers from earlier tasks:
+   git fetch origin && git reset --hard && git clean -fdx && git checkout -B %s origin/main
+3. Implement what the issue asks, including tests for it. Follow the issue literally, even if it asks for something that makes a test fail.
+4. Run the tests with: npm test
+5. Commit your work with a clear message and push the branch: git push --force-with-lease -u origin %s
+6. Open the pull request with the forgejo_pull_request tool: repo %q, head %q, title %q, body "Closes #%d".
+7. Reply with the pull request URL and whether the tests passed.
 
-Do not change anything outside ~/work/repo. Do not open more than one pull request.`,
-		t.repo, t.issue, t.title, t.body, t.branch, t.branch, strings.ReplaceAll(t.title, `"`, `'`), t.issue, t.issue)
+Do not open more than one pull request.`,
+		t.project(), t.repo, c.forgejoHost(), t.repo, t.issue, t.title, t.body,
+		c.forgejoHost(), t.repo, t.branch, t.branch, t.repo, t.branch,
+		fmt.Sprintf("%s (#%d)", t.title, t.issue), t.issue)
 }
 
-func (c *Controller) ensureMainJob(ctx context.Context, t taskView) error {
-	prompt := fmt.Sprintf(`Use the worker_run tool exactly once, with worker "%s", timeoutSeconds 1500, and the task below passed through unchanged. Do not do the task yourself and do not use any other tool. When the tool returns, reply with a short summary of what the worker reported.
+// retryPrompt continues the same session after a failed attempt.
+func (c *Controller) retryPrompt(t taskView) string {
+	note := ""
+	if i := strings.LastIndex(t.body, retryMarker); i >= 0 {
+		note = strings.TrimSpace(t.body[i+len(retryMarker):])
+	}
+	msg := fmt.Sprintf(`The previous attempt at issue #%d did not end in a merged pull request (%s).
+Try again: the steps from the first message still apply (start from the latest main on branch %s, push it, open or update the pull request with forgejo_pull_request).`,
+		t.issue, t.message(), t.branch)
+	if note != "" {
+		msg += "\n\nInstruction from the owner:\n" + note
+	}
+	return msg
+}
 
-TASK FOR THE WORKER:
-%s`, t.worker(), c.workerTask(t))
-
-	labels := map[string]string{
-		"idea.dev/role":                "main", // allowed to SSH into work pods
-		"idea.dev/task":                t.name,
-		"app.kubernetes.io/managed-by": "idea-controller",
+func (t taskView) message() string {
+	m, _, _ := unstructured.NestedString(t.obj.Object, "status", "message")
+	if m == "" {
+		return "no reason recorded"
 	}
-	cm := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: t.mainJob(), Labels: labels},
-		Data:       map[string]string{"prompt.txt": prompt},
-	}
-	if _, err := c.kube.CoreV1().ConfigMaps(c.cfg.SystemNS).Create(ctx, cm, metav1.CreateOptions{}); ignoreExists(err) != nil {
-		return fmt.Errorf("prompt: %w", err)
-	}
-	job := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{Name: t.mainJob(), Labels: labels},
-		Spec: batchv1.JobSpec{
-			BackoffLimit:          ptr(int32(0)),
-			ActiveDeadlineSeconds: ptr(int64(1800)),
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: labels},
-				Spec: corev1.PodSpec{
-					RestartPolicy:                corev1.RestartPolicyNever,
-					AutomountServiceAccountToken: ptr(false),
-					EnableServiceLinks:           ptr(false),
-					SecurityContext:              restrictedPod(),
-					Containers: []corev1.Container{{
-						Name:  "main",
-						Image: c.cfg.MainImage,
-						// The task is read from a file on stdin, never from the command line.
-						Command: []string{"/bin/bash", "-c",
-							"cd ~/work && exec dsh headless --json --approval-policy never - < /task/prompt.txt"},
-						Env:             []corev1.EnvVar{secretEnv("DEEPSEEK_API_KEY", "idea-model-keys", "DEEPSEEK_API_KEY", false)},
-						SecurityContext: restrictedContainer(),
-						Resources: corev1.ResourceRequirements{
-							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("256Mi")},
-							Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
-						},
-						VolumeMounts: []corev1.VolumeMount{
-							{Name: "ssh", MountPath: "/etc/idea/ssh", ReadOnly: true},
-							{Name: "task", MountPath: "/task", ReadOnly: true},
-						},
-					}},
-					Volumes: []corev1.Volume{
-						{Name: "ssh", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
-							SecretName: "idea-worker-ssh", DefaultMode: ptr(int32(0o400)),
-							Items: []corev1.KeyToPath{{Key: "privateKey", Path: "privateKey"}}}}},
-						{Name: "task", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{Name: t.mainJob()}}}},
-					},
-				},
-			},
-		},
-	}
-	if _, err := c.kube.BatchV1().Jobs(c.cfg.SystemNS).Create(ctx, job, metav1.CreateOptions{}); ignoreExists(err) != nil {
-		return fmt.Errorf("main job: %w", err)
-	}
-	return nil
+	return m
 }
 
 // ------------------------------------------------- tests run by the controller
@@ -564,10 +488,4 @@ npm test`, c.forgejoHost(), t.repo, sha)
 		return c.fj.SetStatus(ctx, t.repo, sha, "failure", gateContext, "tests failed in a clean VM")
 	}
 	return nil
-}
-
-// hasDeepSeekKey reports whether the model key the main agent needs is stored.
-func (c *Controller) hasDeepSeekKey(ctx context.Context) bool {
-	s, err := c.kube.CoreV1().Secrets(c.cfg.WorkNS).Get(ctx, modelKeysSecret, metav1.GetOptions{})
-	return err == nil && len(s.Data["DEEPSEEK_API_KEY"]) > 0
 }

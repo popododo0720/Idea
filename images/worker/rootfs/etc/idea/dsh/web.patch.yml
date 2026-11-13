@@ -1,0 +1,14 @@
+# Overlay for the machine's agent dsh (`idea-dsh`, web profile).
+# Applied with --patch at every start, so an image update takes effect even
+# though the profile itself lives on the persistent volume.
+
+# Do not send session logs (which contain the code being worked on) along
+# with requests to the model API. dsh turns this on by default.
+- id: session-log-deepseek
+  config:
+    enabled: false
+
+# Forgejo tools: issues, pull requests, comments, commit checks.
+- insert:
+    - id: idea-forgejo
+      name: '/opt/idea/plugins/forgejo/src/index.ts'

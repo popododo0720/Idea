@@ -157,15 +157,21 @@ export function apply(ctx) {
       if (process.env.IDEA_DEV_DSH_LOGIN) {
         // Development only: a dsh web started by hand, no pairing involved.
         const login = new URL(process.env.IDEA_DEV_DSH_LOGIN)
-        return { url: login.origin, login: login.href }
+        return { url: login.origin, login: login.pathname + login.search }
       }
       const p = await loadPairing()
       if (!p) throw new Error('not paired')
       const r = await call(p.url, 'GET', '/api/v1/dsh', { token: p.token, pin: p.cert })
-      const out = JSON.parse(r.body.toString('utf8') || '{}')
-      if (r.status !== 200 || typeof out.login !== 'string') throw new Error(out.error || `the machine answered HTTP ${r.status}`)
-      // The machine's dsh serves the same certificate as its API.
-      return { url: out.url, login: out.login, cert: p.cert }
+      let out = {}
+      try { out = JSON.parse(r.body.toString('utf8') || '{}') } catch { /* not JSON */ }
+      if (r.status !== 200 || typeof out.login !== 'string' || !Number.isInteger(out.port)) {
+        throw new Error(out.error || `the machine answered HTTP ${r.status}`)
+      }
+      // The agent dsh listens on its own port of the same machine, answers to
+      // its in-cluster name, and serves the same certificate as the API.
+      const base = new URL(p.url)
+      base.port = String(out.port)
+      return { url: base.origin, authority: out.authority, login: out.login, cert: p.cert }
     },
   })
   ctx.effect(() => () => view.close(), 'idea: view proxy')

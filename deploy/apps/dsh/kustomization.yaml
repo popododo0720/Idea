@@ -1,0 +1,7 @@
+# The machine's agent dsh: where projects (workspaces) and tasks (sessions)
+# run, and what the dsh idea plugin shows.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: idea-work
+resources:
+  - dsh.yaml

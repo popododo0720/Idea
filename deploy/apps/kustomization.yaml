@@ -5,3 +5,4 @@ resources:
   - main
   - controller
   - runner
+  - dsh

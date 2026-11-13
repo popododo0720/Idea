@@ -1,0 +1,177 @@
+# The agent dsh (dsh web profile) of the machine. Every project is a dsh
+# workspace, every task a session in it; the owner watches and steers them
+# from their own dsh through the idea plugin, the controller drives them over
+# the same API.
+#
+# It runs agents that execute arbitrary code, so it is a Kata VM in the work
+# namespace under the work-pod network rules (idea.dev/role: worker), plus
+# the inbound rule below. It holds no cluster credentials: only a Forgejo
+# token for the bot user, and the model keys added in its own settings.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: idea-dsh-state
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: idea-dsh
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      idea.dev/agent: dsh
+  template:
+    metadata:
+      labels:
+        idea.dev/agent: dsh
+        idea.dev/role: worker
+    spec:
+      runtimeClassName: kata
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dsh
+          image: ghcr.io/popododo0720/idea-worker:0.7.0
+          command: ["/usr/local/bin/idea-dsh"]
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: DSH_PORT
+              value: "4443"
+            # Every client (the controller, the plugin's proxy) sends this Host.
+            - name: DSH_TRUSTED_HOST
+              value: idea-dsh.idea-work.svc:4443
+            # The pod is the sandbox (a Kata VM); dsh does not ask before tools.
+            - name: DSH_PERMISSION_MODE
+              value: danger-full-access
+            - name: FORGEJO_API
+              value: http://forgejo-http.idea-system.svc:3000/api/v1
+            - name: FORGEJO_USER
+              value: idea-worker
+            - name: FORGEJO_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: idea-worker-forgejo
+                  key: token
+            # Optional: a key stored from the setup page. Keys added in the
+            # dsh settings work as well.
+            - name: DEEPSEEK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: idea-model-keys
+                  key: DEEPSEEK_API_KEY
+                  optional: true
+          ports:
+            - name: dsh
+              containerPort: 4443
+          readinessProbe:
+            tcpSocket:
+              port: dsh
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              cpu: "4"
+              memory: 3Gi
+          volumeMounts:
+            - name: state
+              mountPath: /home/idea/state
+            - name: tls
+              mountPath: /etc/idea/tls
+              readOnly: true
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: idea-dsh-state
+        # The machine's API certificate, copied here by the controller, so the
+        # plugin pins one certificate for both.
+        - name: tls
+          secret:
+            secretName: idea-dsh-tls
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+---
+# In-cluster address (the controller), and the name every client sends as Host.
+apiVersion: v1
+kind: Service
+metadata:
+  name: idea-dsh
+spec:
+  selector:
+    idea.dev/agent: dsh
+  ports:
+    - name: dsh
+      port: 4443
+      targetPort: dsh
+---
+# The owner's dsh reaches it at https://<machine address>:30444 through the
+# idea plugin, which signs in with a login the controller hands to paired
+# devices only.
+apiVersion: v1
+kind: Service
+metadata:
+  name: idea-dsh-external
+spec:
+  type: NodePort
+  selector:
+    idea.dev/agent: dsh
+  ports:
+    - name: dsh
+      port: 4443
+      targetPort: dsh
+      nodePort: 30444
+---
+# Inbound to the agent dsh: the controller, and the NodePort.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: idea-dsh
+spec:
+  endpointSelector:
+    matchLabels:
+      idea.dev/agent: dsh
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: idea-system
+            idea.dev/role: controller
+      toPorts:
+        - ports:
+            - port: "4443"
+              protocol: TCP
+    - fromEntities:
+        - world
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "4443"
+              protocol: TCP

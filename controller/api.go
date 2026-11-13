@@ -13,7 +13,6 @@ package main
 // device, and can be revoked from the plugin.
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -171,31 +170,6 @@ func (c *Controller) taskRows(ctx context.Context) ([]taskRow, error) {
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Created > rows[j].Created })
 	return rows, nil
-}
-
-// mainLog returns the last lines the main agent printed (dsh --json events).
-func (c *Controller) mainLog(ctx context.Context, t taskView) []string {
-	pods, err := c.kube.CoreV1().Pods(c.cfg.SystemNS).List(ctx, metav1.ListOptions{LabelSelector: "job-name=" + t.mainJob()})
-	if err != nil || len(pods.Items) == 0 {
-		return nil
-	}
-	sort.Slice(pods.Items, func(i, j int) bool {
-		return pods.Items[i].CreationTimestamp.After(pods.Items[j].CreationTimestamp.Time)
-	})
-	tail, limit := int64(300), int64(1<<20)
-	rc, err := c.kube.CoreV1().Pods(c.cfg.SystemNS).GetLogs(pods.Items[0].Name,
-		&corev1.PodLogOptions{TailLines: &tail, LimitBytes: &limit}).Stream(ctx)
-	if err != nil {
-		return nil
-	}
-	defer rc.Close()
-	var out []string
-	sc := bufio.NewScanner(rc)
-	sc.Buffer(make([]byte, 64<<10), 1<<20)
-	for sc.Scan() {
-		out = append(out, sc.Text())
-	}
-	return out
 }
 
 // --------------------------------------------------------------- handlers
@@ -371,7 +345,7 @@ func (c *Controller) apiHandler() http.Handler {
 				row = &rows[i]
 			}
 		}
-		writeJSON(w, 200, map[string]any{"task": row, "body": t.body, "events": events, "log": c.mainLog(r.Context(), t)})
+		writeJSON(w, 200, map[string]any{"task": row, "body": t.body, "events": events, "session": t.session})
 	})
 
 	// Retry a failed task, optionally with an extra instruction. The note is
@@ -446,6 +420,24 @@ func (c *Controller) apiHandler() http.Handler {
 		writeJSON(w, 200, map[string]bool{"saved": true})
 	})
 
+	// The agent dsh, for the plugin's view: where it listens (the NodePort on
+	// this machine's address), the Host it answers to, and its current login.
+	authed.HandleFunc("GET /api/v1/dsh", func(w http.ResponseWriter, r *http.Request) {
+		token, err := c.dsh.login(r.Context())
+		if errors.Is(err, errDshNotReady) {
+			writeError(w, 503, "the agent dsh is not running yet")
+			return
+		}
+		if err != nil {
+			slog.Warn("dsh login", "err", err.Error())
+			writeError(w, 502, "could not read the agent dsh login")
+			return
+		}
+		writeJSON(w, 200, map[string]any{
+			"port": dshNodePort, "authority": dshAuthority, "login": "/?token=" + token,
+		})
+	})
+
 	authed.HandleFunc("GET /api/v1/devices", func(w http.ResponseWriter, r *http.Request) {
 		_, devs, err := c.devices(r.Context())
 		if err != nil {
@@ -514,7 +506,7 @@ func (c *Controller) apiTask(w http.ResponseWriter, r *http.Request) (taskView, 
 func (c *Controller) retryTask(ctx context.Context, t taskView, note string) error {
 	c.cleanup(ctx, t)
 	if note != "" {
-		body := t.body + "\n\n---\nFollow-up instruction from the owner:\n" + note
+		body := t.body + retryMarker + note
 		obj := t.obj.DeepCopy()
 		_ = unstructured.SetNestedField(obj.Object, body, "spec", "body")
 		u, err := c.dyn.Resource(taskGVR).Namespace(c.cfg.SystemNS).Update(ctx, obj, metav1.UpdateOptions{})

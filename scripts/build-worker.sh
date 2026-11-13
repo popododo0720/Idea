@@ -15,7 +15,8 @@ podman build \
   --build-arg DSH_VERSION="$DSH_VERSION" \
   --build-arg FORGEJO_RUNNER_VERSION="$FORGEJO_RUNNER_VERSION" \
   --build-arg FORGEJO_RUNNER_SHA256="$FORGEJO_RUNNER_SHA256" \
-  -t "$img" "$REPO_ROOT/images/worker"
+  -f "$REPO_ROOT/images/worker/Dockerfile" \
+  -t "$img" "$REPO_ROOT"
 
 "$REPO_ROOT/scripts/check-image.sh" "$img"
 
