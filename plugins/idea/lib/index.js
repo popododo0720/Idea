@@ -28,6 +28,10 @@ export const name = 'idea'
 export const inject = ['webServer', 'connection']
 
 const PREFIX = '/idea'
+// Subscription sign-ins (Claude, ChatGPT/Codex, Grok, Copilot, Antigravity)
+// come from this plugin, installed alongside idea at an exact version.
+const SUBSCRIPTIONS = 'dsh-plugin-subscriptions'
+const SUBSCRIPTIONS_VERSION = '0.9.13'
 const MAX_BODY = 64 * 1024
 const TIMEOUT_MS = 20_000
 
@@ -180,6 +184,23 @@ export function apply(ctx) {
     paired: async () => Boolean(process.env.IDEA_DEV_DSH_LOGIN) || (await loadPairing()) !== undefined,
   })
   models.schedule()
+
+  // Install dsh-plugin-subscriptions with idea, once, through dsh's own plugin
+  // manager (pnpm checks the registry integrity). A bundle the person already
+  // has, or switched off, is left as it is. It loads after the next restart.
+  const ensureSubscriptions = async () => {
+    const pm = ctx.get('pluginManager')
+    if (!pm || typeof pm.listBundles !== 'function' || typeof pm.installBundle !== 'function') return
+    const present = (await pm.listBundles()).find(b => b.name === SUBSCRIPTIONS)
+    if (present && present.installed) return
+    ctx.logger.info('idea: installing %s@%s', SUBSCRIPTIONS, SUBSCRIPTIONS_VERSION)
+    await pm.installBundle(`${SUBSCRIPTIONS}@${SUBSCRIPTIONS_VERSION}`, { enabled: true, saveExact: true })
+    ctx.logger.info('idea: %s installed; restart dsh to load it', SUBSCRIPTIONS)
+  }
+  const installTimer = setTimeout(() => {
+    ensureSubscriptions().catch(e => ctx.logger.warn('idea: could not install %s: %s', SUBSCRIPTIONS, e && e.message))
+  }, 10_000)
+  ctx.effect(() => () => clearTimeout(installTimer), 'idea: subscriptions install')
 
   // dsh-plugin-subscriptions sign-ins (its own file) stay in step with the machine.
   const subscriptions = createSubscriptionsSync({
