@@ -167,6 +167,15 @@ func (c *Controller) reconcileTasks(ctx context.Context) error {
 func (c *Controller) step(ctx context.Context, t taskView) error {
 	switch t.phase {
 	case phasePending:
+		// Without a model key the main agent cannot start; wait instead of
+		// starting a work VM that would sit idle until its deadline.
+		if !c.hasDeepSeekKey(ctx) {
+			const waiting = "waiting for a DeepSeek API key (set it in the dsh idea panel)"
+			if msg, _, _ := unstructured.NestedString(t.obj.Object, "status", "message"); msg == waiting {
+				return nil
+			}
+			return c.setPhase(ctx, t, phasePending, waiting, nil)
+		}
 		if err := c.ensureWorker(ctx, t); err != nil {
 			return err
 		}
@@ -555,4 +564,10 @@ npm test`, c.forgejoHost(), t.repo, sha)
 		return c.fj.SetStatus(ctx, t.repo, sha, "failure", gateContext, "tests failed in a clean VM")
 	}
 	return nil
+}
+
+// hasDeepSeekKey reports whether the model key the main agent needs is stored.
+func (c *Controller) hasDeepSeekKey(ctx context.Context) bool {
+	s, err := c.kube.CoreV1().Secrets(c.cfg.WorkNS).Get(ctx, modelKeysSecret, metav1.GetOptions{})
+	return err == nil && len(s.Data["DEEPSEEK_API_KEY"]) > 0
 }
