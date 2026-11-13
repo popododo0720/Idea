@@ -31,10 +31,16 @@ done
 rev="$(git rev-parse --abbrev-ref HEAD)@sha1:$(git rev-parse HEAD)"
 [ -z "$(git status --porcelain -- deploy)" ] || rev="$rev-dirty"
 url="oci://$LOCAL_REPO/idea-deploy:dev"
+# Push a copy whose dev root names LOCAL_REPO, so Flux keeps following this
+# registry after it reconciles clusters/dev.
+stage="$(mktemp -d)"; trap 'rm -rf "$stage"' EXIT
+cp -r "$REPO_ROOT/deploy" "$stage/deploy"
+URL="oci://$LOCAL_REPO/idea-deploy" yq -i \
+  '(select(.kind == "OCIRepository") | .spec.url) = strenv(URL)' "$stage/deploy/clusters/dev/root.yaml"
 
 log "pushing deploy/ to $url ($rev)"
 flux push artifact "$url" \
-  --path "$REPO_ROOT/deploy" \
+  --path "$stage/deploy" \
   --source "$(git config --get remote.origin.url)" \
   --revision "$rev" \
   --insecure-registry

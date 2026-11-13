@@ -37,6 +37,16 @@ set -a
 . "$REPO_ROOT/versions.env"
 # shellcheck disable=SC1091
 . "$REPO_ROOT/config.env"
+# Host-specific overrides (registry address, nameservers, ...) live outside the
+# repo, so a builder's own network never lands in it. The data dir keeps the
+# precedence described above.
+if [ -f "$IDEA_SECRETS_DIR/local.env" ]; then
+  _idea_data_dir="$IDEA_DATA_DIR"
+  # shellcheck disable=SC1091
+  . "$IDEA_SECRETS_DIR/local.env"
+  IDEA_DATA_DIR="$_idea_data_dir"
+  unset _idea_data_dir
+fi
 set +a
 
 need() {

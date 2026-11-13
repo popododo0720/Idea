@@ -11,6 +11,7 @@
 | Talos Linux | v1.14.6 | MPL-2.0 | github.com/siderolabs/talos | 저장소 |
 | Kubernetes | v1.37.1 | Apache-2.0 | github.com/kubernetes/kubernetes | 저장소 |
 | Kata Containers (Talos 확장) | 4.3.1 | Apache-2.0 | github.com/kata-containers/kata-containers | 저장소 |
+| QEMU guest agent (Talos 확장) | 11.1.1 | GPL-2.0-or-later | github.com/siderolabs/extensions (qemu-guest-agent) | 저장소 |
 | Cilium (Hubble, Envoy 포함) | 1.20.4 | Apache-2.0 (일부 eBPF 코드는 GPL-2.0 또는 BSD-2-Clause) | github.com/cilium/cilium | 저장소 |
 | Flux (source·kustomize·helm 컨트롤러) | v2.10.0 | Apache-2.0 | github.com/fluxcd/flux2 | 저장소 |
 | cert-manager | v1.21.3 | Apache-2.0 | github.com/cert-manager/cert-manager | 저장소 |

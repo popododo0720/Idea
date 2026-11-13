@@ -58,6 +58,13 @@ add() { # add <name> <file>
 }
 add idea-cilium "$OUT/cilium.yaml"
 add idea-flux   "$D/bootstrap/flux/gotk-components.yaml"
-add idea-root   "$D/clusters/$CLUSTER/root.yaml"
+root="$D/clusters/$CLUSTER/root.yaml"
+if [ "$CLUSTER" = dev ]; then
+  # The committed dev root names the default registry; point it at LOCAL_REPO.
+  URL="oci://$LOCAL_REPO/idea-deploy" yq \
+    '(select(.kind == "OCIRepository") | .spec.url) = strenv(URL)' "$root" > "$OUT/root-dev.yaml"
+  root="$OUT/root-dev.yaml"
+fi
+add idea-root   "$root"
 
 log "wrote $patch ($(du -h "$patch" | cut -f1))"

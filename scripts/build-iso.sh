@@ -39,6 +39,8 @@ rm -rf "$B"; mkdir -p "$B/ext/patches" "$B/out"
 
 # ---- 1. setup extension: scripts + talosctl + the config patches (no secrets)
 cp -r "$REPO_ROOT/images/talos/setup/." "$B/ext/"
+mkdir -p "$B/ext/www/design"
+cp -r "$REPO_ROOT/console/design/idea.css" "$REPO_ROOT/console/design/fonts" "$B/ext/www/design/"
 cp "$REPO_ROOT/images/talos/patches/base.yaml" "$B/ext/patches/10-base.yaml"
 if [ "$DEV" = 1 ]; then
   "$REPO_ROOT/scripts/render-bootstrap.sh" dev
@@ -69,6 +71,7 @@ imager() {
     --insecure \
     --extra-kernel-arg console=tty0 --extra-kernel-arg console=ttyS0 \
     --system-extension-image "$TALOS_KATA_EXTENSION" \
+    --system-extension-image "$TALOS_QEMU_GA_EXTENSION" \
     --system-extension-image "$SETUP_LOCAL"
 }
 
