@@ -223,6 +223,28 @@ func (c *Controller) step(ctx context.Context, t taskView) error {
 
 	case phaseGate:
 		return c.gate(ctx, t)
+
+	case phaseFailed:
+		// The owner may carry on in the task's session (for example after
+		// adding a model key, or to fix failing tests). When its agent is
+		// working again, so is the task.
+		if t.session == "" {
+			return nil
+		}
+		st, err := c.dsh.state(ctx, t.session)
+		if err != nil {
+			if errors.Is(err, errDshNotReady) || isRemote(err, "session/not-found") {
+				return nil
+			}
+			return err
+		}
+		if !st.busy() {
+			return nil
+		}
+		for _, k := range []string{"pullRequest", "pullRequestURL", "headSHA"} {
+			unstructured.RemoveNestedField(t.obj.Object, "status", k)
+		}
+		return c.setPhase(ctx, t, phaseWorking, "the session was continued in dsh", map[string]any{"promptCursor": st.Cursor})
 	}
 	return nil
 }
