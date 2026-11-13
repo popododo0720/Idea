@@ -264,8 +264,9 @@ func (d *dshClient) ensureWorkspace(ctx context.Context, project string) (string
 	err := d.call(ctx, "workspace/create", map[string]string{"path": path}, &out)
 	if isRemote(err, "workspace/invalid-path") {
 		var created string
-		if err := d.callArgs(ctx, "directoryPicker/createDirectory",
-			map[string]any{"path": dshProjects, "name": project}, &created); err != nil {
+		err := d.callArgs(ctx, "directoryPicker/createDirectory",
+			map[string]any{"path": dshProjects, "name": project}, &created)
+		if err != nil && !isRemote(err, "directory-picker/exists") {
 			return "", fmt.Errorf("project directory: %w", err)
 		}
 		err = d.call(ctx, "workspace/create", map[string]string{"path": path}, &out)

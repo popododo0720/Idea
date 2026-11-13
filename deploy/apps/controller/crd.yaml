@@ -74,6 +74,17 @@ spec:
                   type: string
                 headSHA:
                   type: string
+                # The task's session in the agent dsh.
+                session:
+                  type: string
+                # Prompts sent to that session (first attempt + retries).
+                prompts:
+                  type: integer
+                  format: int64
+                # Session log position when the last prompt was sent.
+                promptCursor:
+                  type: integer
+                  format: int64
 ---
 # Project: one repository idea works on (Forgejo organisation "idea", the
 # repository has the project's name). Issues in it become Tasks.

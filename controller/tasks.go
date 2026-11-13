@@ -185,6 +185,10 @@ func (c *Controller) step(ctx context.Context, t taskView) error {
 		return c.startSession(ctx, t)
 
 	case phaseWorking:
+		if t.session == "" {
+			// Started by an older controller (work pod + main job): start over.
+			return c.setPhase(ctx, t, phasePending, "moved to the agent dsh", nil)
+		}
 		st, err := c.dsh.state(ctx, t.session)
 		if err != nil {
 			if errors.Is(err, errDshNotReady) {
