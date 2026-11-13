@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>idea · 설정</title>
+<link rel="stylesheet" href="../design/idea.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="tasks.html"><span class="brand-mark">i</span>idea</a>
+  <span class="sep"></span>
+  <nav>
+    <a href="tasks.html">작업</a>
+    <a href="settings.html" aria-current="page">설정</a>
+  </nav>
+  <span class="grow"></span>
+  <span class="badge badge-ok">정상</span>
+</header>
+
+<main class="page" style="max-width:760px">
+  <div class="page-head">
+    <div>
+      <h1>설정</h1>
+      <p>모델 키, 접속 정보, 연결된 기기를 관리합니다.</p>
+    </div>
+  </div>
+
+  <div class="stack">
+    <section class="card">
+      <div class="card-head">
+        <h2>모델</h2>
+        <span class="badge badge-ok">DeepSeek 연결됨</span>
+      </div>
+      <form class="card-body" method="post" action="/keys">
+        <div class="field">
+          <label class="label" for="deepseek">DeepSeek API 키</label>
+          <input class="input mono" id="deepseek" name="deepseek" type="password" placeholder="sk-••••••••••••3f9a" autocomplete="off">
+          <p class="hint">비워 두면 지금 키를 유지합니다.</p>
+        </div>
+        <div class="field">
+          <label class="label" for="anthropic">Anthropic API 키 <span class="opt">· 선택</span></label>
+          <input class="input mono" id="anthropic" name="anthropic" type="password" placeholder="설정 안 됨" autocomplete="off">
+          <p class="hint">Claude Code 하위 에이전트에 씁니다.</p>
+        </div>
+      </form>
+      <div class="card-foot">
+        <span>키는 이 기기 안에만 저장됩니다.</span>
+        <button class="btn btn-primary btn-sm" type="submit">저장</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>연결된 기기</h2>
+        <button class="btn btn-sm">기기 추가</button>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>이름</th><th class="hide-sm">추가한 날</th><th>마지막 접속</th><th></th></tr></thead>
+          <tbody>
+            <tr>
+              <td><div class="title">데스크톱 · dsh</div><div class="meta mono">a3f1…9c2e</div></td>
+              <td class="hide-sm meta">11월 13일</td>
+              <td class="meta">방금</td>
+              <td style="text-align:right"><button class="btn btn-ghost btn-sm btn-danger">끊기</button></td>
+            </tr>
+            <tr>
+              <td><div class="title">노트북 · dsh</div><div class="meta mono">7be0…41d8</div></td>
+              <td class="hide-sm meta">11월 13일</td>
+              <td class="meta">2시간 전</td>
+              <td style="text-align:right"><button class="btn btn-ghost btn-sm btn-danger">끊기</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Forgejo</h2><a class="btn btn-sm" href="#">열기</a></div>
+      <div class="card-body">
+        <dl class="kv">
+          <dt>주소</dt><dd><span class="copy"><span>https://idea.internal/git/</span><button type="button">복사</button></span></dd>
+          <dt>계정</dt><dd><span class="copy"><span>idea-admin</span><button type="button">복사</button></span></dd>
+          <dt>비밀번호</dt><dd><span class="copy"><span>••••••••••••••••</span><button type="button">보기</button></span></dd>
+        </dl>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>관리자 접근</h2></div>
+      <div class="card-body stack-sm">
+        <p class="muted">Talos와 Kubernetes를 직접 다룰 때만 필요합니다. 이 파일은 기기의 모든 권한입니다.</p>
+        <div class="row" style="margin-top:12px"><button class="btn">talosconfig 내려받기</button></div>
+      </div>
+    </section>
+  </div>
+</main>
+</body>
+</html>

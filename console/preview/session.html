@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>idea · #12 나눗셈 함수 추가</title>
+<link rel="stylesheet" href="../design/idea.css">
+<style>
+  .session { display: grid; grid-template-columns: 1fr 280px; gap: var(--s4); align-items: start; }
+  @media (max-width: 900px) { .session { grid-template-columns: 1fr; } }
+  .composer { display: flex; gap: var(--s2); padding: var(--s3); border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="tasks.html"><span class="brand-mark">i</span>idea</a>
+  <span class="sep"></span>
+  <nav>
+    <a href="tasks.html" aria-current="page">작업</a>
+    <a href="settings.html">설정</a>
+  </nav>
+</header>
+
+<main class="page" style="max-width:1120px">
+  <p class="small muted" style="margin-bottom:12px"><a href="tasks.html">작업</a> / hello-calc / <span class="mono">#12</span></p>
+  <div class="page-head">
+    <div>
+      <div class="row" style="gap:12px"><h1>나눗셈 함수 추가, 0으로 나누면 에러</h1></div>
+      <p class="row"><span class="badge badge-run">작업 중</span><span class="small">VM <span class="mono">w-12</span> 에서 2분 14초째</span></p>
+    </div>
+    <div class="row">
+      <a class="btn" href="#">VM 화면</a>
+      <button class="btn btn-danger">중지</button>
+    </div>
+  </div>
+
+  <div class="session">
+    <section class="card">
+      <div class="card-head">
+        <h2>세션</h2>
+        <span class="xs subtle mono">dsh 0.2.2 · deepseek-v4</span>
+      </div>
+<pre class="log"><span class="t">14:02:11</span> 저장소 클론 idea/hello-calc → ~/work/repo
+<span class="t">14:02:14</span> 브랜치 생성 idea/issue-12
+<span class="t">14:02:20</span> <span class="tool">read</span>   calc.go, calc_test.go
+<span class="t">14:02:41</span> <span class="tool">edit</span>   calc.go  +14 −0   Divide(a, b) (int, error)
+<span class="t">14:02:58</span> <span class="tool">edit</span>   calc_test.go  +22 −0
+<span class="t">14:03:05</span> <span class="tool">shell</span>  go test ./...
+<span class="t">14:03:09</span> <span class="ok">ok</span>     hello-calc  0.004s
+<span class="t">14:03:12</span> <span class="tool">shell</span>  git commit -m "Add Divide with a zero-divisor error"
+<span class="t">14:03:15</span> push 중…</pre>
+      <form class="composer">
+        <input class="input" placeholder="에이전트에게 지시 추가 (예: 음수도 테스트해줘)">
+        <button class="btn btn-primary" type="submit">보내기</button>
+      </form>
+    </section>
+
+    <aside class="stack">
+      <section class="card">
+        <div class="card-head"><h2>진행</h2></div>
+        <div class="card-body">
+          <ol class="steps">
+            <li class="done">이슈 접수<span class="when">14:01</span></li>
+            <li class="done">작업 VM 시작<span class="when">14:01</span></li>
+            <li class="now">구현 · 테스트<span class="when">14:02</span></li>
+            <li class="todo">PR 열기</li>
+            <li class="todo">테스트 관문</li>
+            <li class="todo">머지</li>
+          </ol>
+        </div>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>정보</h2></div>
+        <div class="card-body">
+          <dl class="kv small">
+            <dt>프로젝트</dt><dd><span class="val">hello-calc</span></dd>
+            <dt>이슈</dt><dd><a class="val mono" href="#">#12</a></dd>
+            <dt>브랜치</dt><dd><span class="val mono">idea/issue-12</span></dd>
+            <dt>모델</dt><dd><span class="val mono">deepseek-v4</span></dd>
+          </dl>
+        </div>
+      </section>
+    </aside>
+  </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>idea · 설정 코드</title>
+<link rel="stylesheet" href="../design/idea.css">
+</head>
+<body>
+<main class="page-narrow">
+  <div class="brand" style="margin-bottom:32px"><span class="brand-mark">i</span>idea</div>
+
+  <div class="stack">
+    <div class="stack-sm">
+      <h1>설정 코드 입력</h1>
+      <p class="muted">기기 콘솔 화면에 표시된 12자리 코드를 입력하세요. 코드는 10분마다 다시 표시됩니다.</p>
+    </div>
+
+    <form class="stack" method="post" action="/">
+      <div class="field">
+        <label class="label" for="code">설정 코드</label>
+        <input class="input code-input" id="code" name="code" placeholder="xxxx-xxxx-xxxx"
+               autocomplete="one-time-code" autocapitalize="off" spellcheck="false" autofocus required>
+      </div>
+      <button class="btn btn-primary btn-block" type="submit">계속</button>
+    </form>
+
+    <p class="xs subtle">콘솔에서 <code>setup code</code> 줄을 찾으세요. Talos 화면에서 <kbd>/</kbd>를 누르면 로그를 걸러 볼 수 있습니다.</p>
+  </div>
+</main>
+</body>
+</html>

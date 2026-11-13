@@ -45,6 +45,13 @@
 | Cua Driver (dsh 데스크톱 제공자가 고정) | 0.28.0 | MIT | github.com/trycua/cua | 저장소 |
 | dsh의 나머지 npm 의존성 | `images/worker/dsh/package-lock.json` | 패키지별로 다름(726개, 개별 확인 안 함) | npm | — |
 
+## 웹 화면에 들어가는 것 (`console/design/fonts`)
+
+| 이름 | 버전 | 라이선스 | 출처 | 확인 |
+| --- | --- | --- | --- | --- |
+| Pretendard (가변, KS X 1001 한글로 줄임) | v1.3.9 | OFL-1.1 | github.com/orioncactus/pretendard | 릴리스의 LICENSE.txt |
+| Geist Mono (가변) | v1.9.2 | OFL-1.1 | github.com/vercel/geist-font | 릴리스의 OFL.txt |
+
 ## 우리가 만든 것
 
 | 이름 | 라이선스 | 비고 |
