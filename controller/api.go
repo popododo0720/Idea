@@ -417,6 +417,10 @@ func (c *Controller) apiHandler() http.Handler {
 			return
 		}
 		slog.Info("model keys saved from dsh")
+		// The agent dsh reads the key at start: restart it to pick it up.
+		if err := c.restartDsh(r.Context()); err != nil {
+			slog.Warn("restart agent dsh", "err", err.Error())
+		}
 		writeJSON(w, 200, map[string]bool{"saved": true})
 	})
 

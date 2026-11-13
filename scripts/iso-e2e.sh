@@ -4,7 +4,7 @@
 #
 #   1. boot a blank VM from the ISO (iso-test.sh), send it nothing
 #   2. read the setup code off its console
-#   3. enter the model keys on the setup page
+#   3. pair like the dsh plugin does and store the model key
 #   4. log in to Forgejo with the account the page shows, open an issue
 #   5. wait for the pull request to be merged
 #
@@ -62,15 +62,26 @@ page --data-urlencode "code=wrong-code-0000" "$url" | grep -c 'Wrong setup code'
   || die "the setup page accepted a wrong code"
 mark "wrong setup code rejected"
 
-# Model keys, from the file a human keeps on this host; never on a command line.
+# The unlocked page.
+page --data-urlencode "code@$T/code" "$url" > "$T/page.html"
+grep -q "Connect your dsh" "$T/page.html" || die "the setup code did not unlock the page"
+mark "setup page unlocked"
+
+# Pair as the dsh plugin does, then store the model key through the API.
+# The key comes from the file a human keeps on this host; never on a command line.
 envf="$IDEA_SECRETS_DIR/env"
+umask 077
+jq -n --rawfile c "$T/code" '{code: $c, device: "iso-e2e"}' > "$T/pair.json"
+page -H "Content-Type: application/json" --data-binary "@$T/pair.json" "${url}api/v1/pair" \
+  | jq -r '.token // empty' > "$T/devtoken"
+[ -s "$T/devtoken" ] || die "pairing with the setup code failed"
+printf 'header = "Authorization: Bearer %s"\n' "$(cat "$T/devtoken")" > "$T/apirc"
 sed -n 's/^DEEPSEEK_API_KEY=//p' "$envf" | tr -d '\n' > "$T/deepseek"
-sed -n 's/^CLAUDE_CODE_OAUTH_TOKEN=//p' "$envf" | tr -d '\n' > "$T/claude"
 [ -s "$T/deepseek" ] || die "$envf has no DEEPSEEK_API_KEY"
-page --data-urlencode "code@$T/code" --data-urlencode "deepseek@$T/deepseek" \
-     --data-urlencode "claude@$T/claude" "${url}keys" > "$T/page.html"
-grep -q 'Saved' "$T/page.html" || die "the setup page did not save the keys"
-mark "model keys entered on the setup page"
+jq -n --rawfile k "$T/deepseek" '{deepseek: $k}' > "$T/keys.json"
+page -K "$T/apirc" -X PUT -H "Content-Type: application/json" --data-binary "@$T/keys.json" "${url}api/v1/keys" \
+  | grep -q '"saved":true' || die "the API did not save the model key"
+mark "paired and stored the model key"
 
 # The account the page shows.
 python3 -I - "$T" <<'PY'

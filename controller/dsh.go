@@ -319,6 +319,21 @@ func (d *dshClient) cancel(ctx context.Context, sessionID string) error {
 	return d.call(ctx, "session/cancel", map[string]string{"sessionId": sessionID}, nil)
 }
 
+// restartDsh deletes the agent dsh pod; its Deployment starts a new one.
+func (c *Controller) restartDsh(ctx context.Context) error {
+	pods := c.kube.CoreV1().Pods(c.cfg.WorkNS)
+	list, err := pods.List(ctx, metav1.ListOptions{LabelSelector: dshSelector})
+	if err != nil {
+		return err
+	}
+	for _, p := range list.Items {
+		if err := pods.Delete(ctx, p.Name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 // --------------------------------------------------------------------- TLS
 
 // syncTLS copies the machine's API certificate to the work namespace, where
