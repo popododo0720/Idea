@@ -1,0 +1,8 @@
+# Development ISOs only (scripts/build-iso.sh --dev): name servers from
+# config.env (NAMESERVERS) for networks whose DHCP hands out no DNS server.
+# A fallback: setup.sh leaves it out when DHCP or the console (F3) already
+# gave the machine name servers.
+apiVersion: v1alpha1
+kind: ResolverConfig
+nameservers:
+${NAMESERVER_LIST}

@@ -46,8 +46,10 @@ if [ "$DEV" = 1 ]; then
   "$REPO_ROOT/scripts/render-bootstrap.sh" dev
   NAMESERVER_LIST="$(for n in $NAMESERVERS; do printf '  - address: %s\n' "$n"; done)"
   export NAMESERVER_LIST
-  envsubst '${NAMESERVER_LIST} ${REGISTRY_ADDR}' \
+  envsubst '${REGISTRY_ADDR}' \
     < "$REPO_ROOT/images/talos/patches/host.yaml.tmpl" > "$B/ext/patches/20-host.yaml"
+  envsubst '${NAMESERVER_LIST}' \
+    < "$REPO_ROOT/images/talos/patches/resolvers.yaml.tmpl" > "$B/ext/patches/15-fallback-resolvers.yaml"
   cp "$REPO_ROOT/_out/talos/bootstrap.yaml" "$B/ext/patches/30-bootstrap.yaml"
 else
   "$REPO_ROOT/scripts/render-bootstrap.sh" public

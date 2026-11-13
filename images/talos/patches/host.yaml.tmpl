@@ -1,12 +1,6 @@
 # Development ISOs only (scripts/build-iso.sh --dev), rendered with values
 # from config.env. The public ISO takes DNS from DHCP and pulls from ghcr.io.
 
-# idea-net hands out addresses but no DNS server.
-apiVersion: v1alpha1
-kind: ResolverConfig
-nameservers:
-${NAMESERVER_LIST}
----
 # The local registry on the host speaks plain HTTP.
 apiVersion: v1alpha1
 kind: RegistryMirrorConfig

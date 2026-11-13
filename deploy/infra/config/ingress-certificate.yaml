@@ -1,6 +1,7 @@
 # Default certificate for the Cilium ingress (referenced by name from the
 # Cilium values). It is issued for the name only: the ingress needs SNI, so
-# HTTPS by bare IP address is not served anyway.
+# HTTPS by bare IP address is not served anyway. The name is IDEA_HOST from the
+# ConfigMap flux-system/idea-settings (chosen on the install page).
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -10,7 +11,7 @@ spec:
   secretName: idea-ingress-tls
   commonName: idea
   dnsNames:
-    - idea.internal
+    - ${IDEA_HOST:=idea.internal}
   duration: 8760h
   renewBefore: 720h
   privateKey:

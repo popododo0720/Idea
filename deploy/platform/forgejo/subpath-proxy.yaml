@@ -1,4 +1,4 @@
-# Forgejo is published under https://idea.internal/git/ but does not serve a
+# Forgejo is published under https://<IDEA_HOST>/git/ but does not serve a
 # URL prefix itself, and the Cilium ingress cannot rewrite paths. This small
 # nginx strips the /git prefix and forwards to Forgejo. Pods inside the
 # cluster skip it and use http://forgejo-http:3000/ directly.
@@ -6,6 +6,9 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: forgejo-subpath-nginx
+  annotations:
+    # nginx variables ($uri, $host): Flux must not substitute them.
+    kustomize.toolkit.fluxcd.io/substitute: disabled
 data:
   default.conf: |
     upstream forgejo {
@@ -106,7 +109,7 @@ spec:
   ingressClassName: cilium
   tls:
     - hosts:
-        - idea.internal
+        - ${IDEA_HOST:=idea.internal}
   rules:
     - http:
         paths:

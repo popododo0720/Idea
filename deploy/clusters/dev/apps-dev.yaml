@@ -12,5 +12,11 @@ spec:
     name: idea-deploy
   path: ./apps-dev
   prune: true
+  postBuild:
+    # Installation settings (IDEA_HOST), written by the installer.
+    substituteFrom:
+      - kind: ConfigMap
+        name: idea-settings
+        optional: true
   wait: true
   timeout: 10m

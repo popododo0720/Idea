@@ -1,5 +1,5 @@
 # Forgejo: the Git server inside the cluster. Published at
-# https://idea.internal/git/ ; pods talk to it at http://forgejo-http:3000/.
+# https://<IDEA_HOST>/git/ ; pods talk to it at http://forgejo-http:3000/.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -54,8 +54,8 @@ spec:
       config:
         APP_NAME: idea git
         server:
-          DOMAIN: idea.internal
-          ROOT_URL: https://idea.internal/git/
+          DOMAIN: ${IDEA_HOST:=idea.internal}
+          ROOT_URL: https://${IDEA_HOST:=idea.internal}/git/
           DISABLE_SSH: true
         database:
           DB_TYPE: postgres

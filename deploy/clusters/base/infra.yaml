@@ -29,5 +29,12 @@ spec:
     name: idea-deploy
   path: ./infra/config
   prune: true
+  postBuild:
+    # Installation settings (IDEA_HOST), written by the installer. Defaults
+    # in the manifests apply when the ConfigMap is missing.
+    substituteFrom:
+      - kind: ConfigMap
+        name: idea-settings
+        optional: true
   wait: true
   timeout: 5m

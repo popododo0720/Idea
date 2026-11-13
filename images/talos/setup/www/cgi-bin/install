@@ -56,6 +56,9 @@ form() { # form [error]
     done < "$W/disks"
     echo '</select><p class="hint">저장소와 데이터베이스가 놓이는 곳입니다. 따로 고르면 그 디스크도 지워집니다.</p></div>'
   fi
+  echo '<div class="field"><label class="label" for="host">접속 이름</label>'
+  echo '<input class="input mono" id="host" name="host" placeholder="idea.internal" autocomplete="off" autocapitalize="off" spellcheck="false">'
+  echo '<p class="hint">이 기기를 부를 도메인 이름입니다(예: idea.example.lan). 비워 두면 idea.internal. DNS나 hosts 파일에서 이 이름을 기기 주소로 연결하세요.</p></div>'
   echo '<label class="row small" style="align-items:flex-start;gap:10px;cursor:pointer">'
   echo '<input type="checkbox" name="confirm" value="yes" required style="margin-top:3px">'
   echo '<span>고른 디스크의 내용이 모두 지워지는 것을 확인했습니다. 되돌릴 수 없습니다.</span></label>'
@@ -88,11 +91,16 @@ case "$len" in ''|*[!0-9]*) len=0 ;; esac
 body="$(head -c "$len")"
 field() { echo "$body" | tr '&' '\n' | sed -n "s/^$1=//p" | head -n 1 | sed 's/%2[Ff]/\//g'; }
 disk="$(field disk)"; data="$(field data)"; confirm="$(field confirm)"
+host="$(field host | tr 'A-Z' 'a-z')"
 
 known "$disk" || { form '설치할 디스크를 고르세요.'; exit 0; }
 [ -z "$data" ] || known "$data" || { form '데이터 디스크가 올바르지 않습니다.'; exit 0; }
 [ "$data" != "$disk" ] || data=""
 [ "$confirm" = yes ] || { form '지워지는 것을 확인해야 설치합니다.'; exit 0; }
+if [ -n "$host" ]; then
+  [ "${#host}" -le 253 ] && echo "$host" | grep -Eq '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$' \
+    || { form '접속 이름이 올바른 도메인 이름이 아닙니다(예: idea.example.lan).'; exit 0; }
+fi
 
-printf '%s\n%s\n' "$disk" "$data" > "$W/choice.tmp" && mv "$W/choice.tmp" "$W/choice"
+printf '%s\n%s\n%s\n' "$disk" "$data" "$host" > "$W/choice.tmp" && mv "$W/choice.tmp" "$W/choice"
 started

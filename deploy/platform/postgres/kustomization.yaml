@@ -10,3 +10,6 @@ configMapGenerator:
       - init-roles.sh
 generatorOptions:
   disableNameSuffixHash: true
+  annotations:
+    # Shell code: Flux must not substitute its ${...}.
+    kustomize.toolkit.fluxcd.io/substitute: disabled

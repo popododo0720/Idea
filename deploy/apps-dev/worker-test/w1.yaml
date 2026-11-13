@@ -108,7 +108,7 @@ spec:
   ingressClassName: cilium
   tls:
     - hosts:
-        - idea.internal
+        - ${IDEA_HOST:=idea.internal}
   rules:
     - http:
         paths:

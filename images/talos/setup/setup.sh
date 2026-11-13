@@ -83,6 +83,7 @@ listed()  { while read -r dev _; do [ "$dev" != "$1" ] || return 0; done < "$W/d
 
 sysdisk="$(arg idea.disk)"
 datadisk=""
+host="$(arg idea.host)"
 if [ -n "$sysdisk" ]; then
   # Chosen on the kernel command line: no questions.
   listed "$sysdisk" || { log "idea.disk=$sysdisk is not a usable disk"; sleep 30; exit 1; }
@@ -108,6 +109,7 @@ else
   kill "$hp" 2>/dev/null || true
   sysdisk="$(sed -n 1p "$W/choice")"
   datadisk="$(sed -n 2p "$W/choice")"
+  host="$(sed -n 3p "$W/choice")"
   listed "$sysdisk" || { log "invalid choice"; exit 1; }
 fi
 # A data disk that is not empty has to be wiped before Talos will use it.
@@ -116,7 +118,12 @@ if [ -n "$datadisk" ] && is_used "$datadisk"; then
   $T wipe disk "${datadisk#/dev/}" --insecure -n 127.0.0.1 \
     || { log "could not wipe $datadisk"; sleep 30; exit 1; }
 fi
-log "address $ip, system disk $sysdisk, data disk ${datadisk:-none (system disk)}"
+# The name this machine answers to (install page or kernel arg idea.host).
+case "$host" in
+  *[!a-z0-9.-]*|.*|*.|*..*) log "ignoring invalid name '$host'"; host="" ;;
+esac
+host="${host:-idea.internal}"
+log "address $ip, system disk $sysdisk, data disk ${datadisk:-none (system disk)}, name $host"
 
 # ---- 4. secrets
 if [ "$MODE" = embedded ]; then
@@ -145,8 +152,22 @@ fi
   fi
 } > "$W/volume.yaml"
 
+# Name servers the machine already has from DHCP or the console (F3) win
+# over the fallback list a development ISO carries. Talos uses 1.1.1.1 and
+# 8.8.8.8 when nobody gave it any.
+own_dns() {
+  $T get resolvers --insecure -n 127.0.0.1 -o yaml 2>/dev/null \
+    | sed -n 's/^ *- *\([0-9.]*[0-9]\)$/\1/p; s/^ *- *\([0-9a-fA-F]*:[0-9a-fA-F:]*\)$/\1/p' \
+    | grep -v -x -e 1.1.1.1 -e 8.8.8.8 | grep -q .
+}
 patches=""
-for f in /etc/idea/patches/*.yaml; do patches="$patches --config-patch-control-plane @$f"; done
+for f in /etc/idea/patches/*.yaml; do
+  case "$f" in
+    *-fallback-resolvers.yaml)
+      if own_dns; then log "keeping the name servers this machine already has"; continue; fi ;;
+  esac
+  patches="$patches --config-patch-control-plane @$f"
+done
 # shellcheck disable=SC2086
 $T gen config "$CLUSTER_NAME" "https://$ip:6443" \
   --with-secrets "$W/secrets.yaml" \
@@ -194,6 +215,19 @@ code="$(echo "$code" | sed 's/^\(....\)\(....\)\(....\)$/\1-\2-\3/')"
   echo "    code: $code"
   echo '    talosconfig: |'
   sed 's/^/      /' "$W/talosconfig"
+  echo '---'
+  echo 'apiVersion: v1alpha1'
+  echo 'kind: KubeInlineManifestConfig'
+  echo 'name: idea-settings'
+  echo 'manifest: |'
+  echo '  # Installation settings, substituted into the manifests by Flux.'
+  echo '  apiVersion: v1'
+  echo '  kind: ConfigMap'
+  echo '  metadata:'
+  echo '    name: idea-settings'
+  echo '    namespace: flux-system'
+  echo '  data:'
+  echo "    IDEA_HOST: $host"
   echo '---'
   echo 'apiVersion: v1alpha1'
   echo 'kind: ExtensionServiceConfig'
