@@ -1,10 +1,12 @@
 # idea design system
 
-One stylesheet, `idea.css`, used by every idea surface: the installer page, the setup and
-console pages served by the controller, and the dsh `idea` panel. No build step and no
+One stylesheet, `idea.css`, used by every idea surface. Users work in DeepSeek Harness:
+projects, tasks, sessions and settings live in the dsh `idea` plugin panel. The only web
+pages are the ones needed before dsh can connect: the installer disk chooser and the
+first-setup (setup code) page. No build step and no
 external requests: fonts are vendored in `fonts/`.
 
-Open `../preview/*.html` in a browser to see every component on real pages.
+Open `../preview/*.html` in a browser to see the web pages.
 
 ## Principles
 
@@ -35,7 +37,7 @@ Never hard-code a color or a size in a page; add a token instead.
 | Class | Use |
 | --- | --- |
 | `.topbar` `.brand` | Top bar with the product mark and main navigation |
-| `.shell` `.sidebar` `.nav-item` | Project list on the left, content on the right |
+| `.shell` `.sidebar` `.nav-item` | Project list and content in the dsh panel |
 | `.page` `.page-narrow` `.page-head` | Page width and the title row |
 | `.card` `.card-head` `.card-body` `.card-foot` | Grouped settings; the footer holds the save button |
 | `.btn` `.btn-primary` `.btn-ghost` `.btn-danger` `.btn-sm` | One primary button per view |
