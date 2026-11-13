@@ -15,14 +15,14 @@
 //     and only for its own Host, against other local programs and DNS
 //     rebinding.
 //
-// Upstream TLS is pinned to the machine's certificate, as the API calls are.
+// Upstream TLS is pinned to the machine's certificate, as the API calls are
+// (tls-pin.js): nothing is sent before the peer proved to be that certificate.
 
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
-import { connect as tlsConnect } from 'node:tls'
 import { connect as netConnect } from 'node:net'
-import { X509Certificate } from 'node:crypto'
+import { pinnedSocket, portOf } from './tls-pin.js'
 
 const HOP = new Set(['connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'upgrade', 'te', 'trailer', 'proxy-authorization', 'proxy-authenticate'])
 const VIEW_COOKIE = 'idea_view'
@@ -48,6 +48,14 @@ function cookieValue(header, name) {
  *   the Host it answers to when that differs from the address (authority),
  *   and the pinned certificate.
  */
+function netConnectReady(host, port) {
+  return new Promise((resolve, reject) => {
+    const s = netConnect({ host, port })
+    s.once('connect', () => resolve(s))
+    s.once('error', reject)
+  })
+}
+
 export function createViewProxy({ upstream, log = () => {} }) {
   const viewSecret = randomBytes(32).toString('hex')
   const tickets = new Map() // ticket -> expiry
@@ -55,15 +63,12 @@ export function createViewProxy({ upstream, log = () => {} }) {
   let target                // { url: URL, authority: string, origin: string, cert }
   let server, port
 
-  function tlsOptions() {
-    if (!target || target.url.protocol !== 'https:') return {}
-    if (!target.cert) return { rejectUnauthorized: false }
-    const fp = new X509Certificate(target.cert).fingerprint256
-    return {
-      ca: [target.cert],
-      rejectUnauthorized: true,
-      checkServerIdentity: (_h, c) => (c.fingerprint256 === fp ? undefined : new Error('idea: certificate changed')),
-    }
+  // A connection to the machine: pinned when a certificate is known.
+  async function upstreamSocket() {
+    const u = target.url
+    if (u.protocol !== 'https:') return netConnectReady(u.hostname, portOf(u))
+    if (!target.cert) throw new Error('idea: no pinned certificate for the machine')
+    return pinnedSocket({ host: u.hostname, port: portOf(u), pin: target.cert })
   }
 
   function absorbCookies(setCookie) {
@@ -76,9 +81,12 @@ export function createViewProxy({ upstream, log = () => {} }) {
     jar = [...cookies.values()].join('; ')
   }
 
-  function send(method, url, headers) {
-    const req = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, { method, headers, agent: false, ...tlsOptions() })
-    return req
+  async function send(method, url, headers) {
+    const socket = await upstreamSocket()
+    return (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, {
+      // No agent: Node then uses this already verified socket.
+      method, headers, createConnection: () => socket,
+    })
   }
 
   // Log in to the machine's dsh: its login URL sets the session cookie.
@@ -87,8 +95,8 @@ export function createViewProxy({ upstream, log = () => {} }) {
     const url = new URL(up.url)
     const authority = up.authority || url.host
     target = { url, authority, origin: `${url.protocol}//${authority}`, cert: up.cert }
+    const req = await send('GET', new URL(up.login, url), { host: authority, accept: 'text/html' })
     await new Promise((resolve, reject) => {
-      const req = send('GET', new URL(up.login, url), { host: authority, accept: 'text/html' })
       req.on('response', res => {
         absorbCookies(res.headers['set-cookie'])
         res.resume()
@@ -139,8 +147,14 @@ export function createViewProxy({ upstream, log = () => {} }) {
     if (!target || !jar) {
       try { await login() } catch (e) { res.writeHead(502).end(String(e.message)); return }
     }
-    const forward = (retry) => {
-      const up = send(req.method, new URL(url.pathname + url.search, target.url), upstreamHeaders(req.headers))
+    const forward = async (retry) => {
+      let up
+      try {
+        up = await send(req.method, new URL(url.pathname + url.search, target.url), upstreamHeaders(req.headers))
+      } catch (e) {
+        if (!res.headersSent) res.writeHead(502).end(String(e.message)); else res.destroy()
+        return
+      }
       up.on('response', ur => {
         absorbCookies(ur.headers['set-cookie'])
         if (ur.statusCode === 401 && retry && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -158,7 +172,7 @@ export function createViewProxy({ upstream, log = () => {} }) {
       if (retry && req.method !== 'GET' && req.method !== 'HEAD') req.pipe(up)
       else up.end()
     }
-    forward(true)
+    await forward(true)
   }
 
   async function onUpgrade(req, socket, head) {
@@ -166,22 +180,17 @@ export function createViewProxy({ upstream, log = () => {} }) {
     if (!target || !jar) {
       try { await login() } catch { socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n'); return }
     }
-    const u = target.url
-    const portNum = Number(u.port || (u.protocol === 'https:' ? 443 : 80))
-    const up = u.protocol === 'https:'
-      ? tlsConnect({ host: u.hostname, port: portNum, servername: /^[\d.]+$/.test(u.hostname) ? undefined : u.hostname, ...tlsOptions() })
-      : netConnect({ host: u.hostname, port: portNum })
-    up.once(u.protocol === 'https:' ? 'secureConnect' : 'connect', () => {
-      const h = upstreamHeaders(req.headers)
-      h.connection = 'Upgrade'
-      h.upgrade = req.headers.upgrade
-      let head1 = `${req.method} ${req.url} HTTP/1.1\r\n`
-      for (const [k, v] of Object.entries(h)) for (const vv of [].concat(v)) head1 += `${k}: ${vv}\r\n`
-      up.write(head1 + '\r\n')
-      if (head && head.length) up.write(head)
-      up.pipe(socket)
-      socket.pipe(up)
-    })
+    let up
+    try { up = await upstreamSocket() } catch { socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n'); return }
+    const h = upstreamHeaders(req.headers)
+    h.connection = 'Upgrade'
+    h.upgrade = req.headers.upgrade
+    let head1 = `${req.method} ${req.url} HTTP/1.1\r\n`
+    for (const [k, v] of Object.entries(h)) for (const vv of [].concat(v)) head1 += `${k}: ${vv}\r\n`
+    up.write(head1 + '\r\n')
+    if (head && head.length) up.write(head)
+    up.pipe(socket)
+    socket.pipe(up)
     const kill = () => { socket.destroy(); up.destroy() }
     up.on('error', kill)
     socket.on('error', kill)

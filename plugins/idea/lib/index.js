@@ -20,6 +20,7 @@ import { request as httpsRequest } from 'node:https'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { createViewProxy } from './view-proxy.js'
+import { pinnedSocket, portOf } from './tls-pin.js'
 
 export const name = 'idea'
 export const inject = ['webServer', 'connection']
@@ -61,29 +62,22 @@ function fingerprint(pem) {
 }
 
 /**
- * One HTTPS call to the machine. With `pin`, only the paired certificate is
- * accepted (it is the only trust anchor and its fingerprint must match).
+ * One HTTPS call to the machine. With `pin`, the connection is only used
+ * once the machine has shown exactly the paired certificate (tls-pin.js).
  * Without it (pairing), any certificate is accepted and returned, to be
  * pinned from then on.
  */
-function call(base, method, path, { body, token, pin } = {}) {
+async function call(base, method, path, { body, token, pin } = {}) {
+  const url = new URL(path, base)
+  const socket = pin ? await pinnedSocket({ host: url.hostname, port: portOf(url), pin }) : undefined
   return new Promise((resolve, reject) => {
-    const url = new URL(path, base)
     const data = body === undefined ? undefined : Buffer.from(JSON.stringify(body))
     const headers = { accept: 'application/json' }
     if (data) { headers['content-type'] = 'application/json'; headers['content-length'] = String(data.length) }
     if (token) headers.authorization = `Bearer ${token}`
-    const tls = pin
-      ? {
-          ca: [pin],
-          rejectUnauthorized: true,
-          // The pinned certificate is self-signed for the machine's name; the
-          // address used may be an IP. Identity is the exact certificate.
-          checkServerIdentity: (_host, cert) =>
-            cert.fingerprint256 === fingerprint(pin) ? undefined : new Error('idea: certificate changed'),
-        }
-      : { rejectUnauthorized: false }
-    const req = httpsRequest(url, { method, headers, timeout: TIMEOUT_MS, agent: false, ...tls }, res => {
+    // With createConnection and no agent, Node uses the already verified socket.
+    const tls = socket ? { createConnection: () => socket } : { agent: false, rejectUnauthorized: false }
+    const req = httpsRequest(url, { method, headers, timeout: TIMEOUT_MS, ...tls }, res => {
       const chunks = []
       let size = 0
       res.on('data', c => {
