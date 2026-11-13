@@ -22,6 +22,7 @@ import { join } from 'node:path'
 import { createViewProxy } from './view-proxy.js'
 import { pinnedSocket, portOf } from './tls-pin.js'
 import { createModelSync } from './model-sync.js'
+import { createSubscriptionsSync } from './subscriptions-sync.js'
 
 export const name = 'idea'
 export const inject = ['webServer', 'connection']
@@ -180,6 +181,13 @@ export function apply(ctx) {
   })
   models.schedule()
 
+  // dsh-plugin-subscriptions sign-ins (its own file) stay in step with the machine.
+  const subscriptions = createSubscriptionsSync({
+    ctx,
+    json: (method, path, value) => view.json(method, path, value),
+    paired: async () => Boolean(process.env.IDEA_DEV_DSH_LOGIN) || (await loadPairing()) !== undefined,
+  })
+
   const rejected = (req, res) => {
     const rejection = ctx.connection.requestRejection(req)
     if (rejection === undefined) return false
@@ -234,6 +242,8 @@ export function apply(ctx) {
       await savePairing({ url: base, token: out.token, id: out.id, host: out.host, cert, pairedAt: new Date().toISOString() })
       view.reset()
       models.schedule()
+      subscriptions.reset()
+      subscriptions.now()
       sendJson(res, 200, { paired: true, url: base, host: out.host, device: out.id, fingerprint: fingerprint(cert) })
       return
     }
@@ -248,6 +258,7 @@ export function apply(ctx) {
       }
       view.reset()
       models.reset()
+      subscriptions.reset()
       sendJson(res, 200, { paired: false })
       return
     }

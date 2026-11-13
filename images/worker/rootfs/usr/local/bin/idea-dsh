@@ -35,6 +35,18 @@ if [ -n "${DSH_TRUSTED_HOST:-}" ]; then
   trusted=(--trusted-host "$DSH_TRUSTED_HOST")
 fi
 
+# Subscription models (Claude, ChatGPT/Codex, Grok, Copilot, Antigravity):
+# the dsh-plugin-subscriptions plugin, the same one the owner signs in with on
+# their own dsh; the idea plugin there keeps the sign-ins in step with this
+# one. Installed into the profile at the pinned version (pnpm checks the
+# registry integrity); a failed install leaves dsh running without it.
+if [ -n "${IDEA_SUBSCRIPTIONS_PLUGIN_VERSION:-}" ] \
+  && ! grep -q "\"dsh-plugin-subscriptions\": \"${IDEA_SUBSCRIPTIONS_PLUGIN_VERSION}\"" \
+       "$DSH_HOME/profiles/web/package.json" 2>/dev/null; then
+  dsh plugin --profile web add --save-exact "dsh-plugin-subscriptions@${IDEA_SUBSCRIPTIONS_PLUGIN_VERSION}" \
+    || echo "idea-dsh: could not install dsh-plugin-subscriptions" >&2
+fi
+
 cd "$STATE/projects"
 exec dsh --profile web --patch /etc/idea/dsh/web.patch.yml \
   --no-open --host "$POD_IP" --port "${DSH_PORT:-4443}" "${trusted[@]}" "${tls[@]}"

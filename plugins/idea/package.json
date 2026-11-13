@@ -1,6 +1,6 @@
 {
   "name": "@popododo0720/dsh-idea",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "DeepSeek Harness panel for an idea machine: projects, tasks and agent runs, from your own dsh",
   "type": "module",
   "main": "lib/index.js",
@@ -9,7 +9,7 @@
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
-  "files": ["lib/index.js", "lib/view-proxy.js", "lib/tls-pin.js", "lib/model-sync.js", "lib/client.js", "cordis.patch.yml", "README.md"],
+  "files": ["lib/index.js", "lib/view-proxy.js", "lib/tls-pin.js", "lib/model-sync.js", "lib/subscriptions-sync.js", "lib/client.js", "cordis.patch.yml", "README.md"],
   "engines": { "dsh": ">=0.2.2-rc.1 <0.3.0" },
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },

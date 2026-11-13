@@ -13,6 +13,7 @@ podman build \
   --build-arg NODE_VERSION="$NODE_VERSION" \
   --build-arg NODE_SHA256="$NODE_SHA256" \
   --build-arg DSH_VERSION="$DSH_VERSION" \
+  --build-arg SUBSCRIPTIONS_PLUGIN_VERSION="$SUBSCRIPTIONS_PLUGIN_VERSION" \
   --build-arg FORGEJO_RUNNER_VERSION="$FORGEJO_RUNNER_VERSION" \
   --build-arg FORGEJO_RUNNER_SHA256="$FORGEJO_RUNNER_SHA256" \
   -f "$REPO_ROOT/images/worker/Dockerfile" \
