@@ -10,10 +10,10 @@
 //     never sees it),
 //   - forwards every request and WebSocket of the framed page, with Host and
 //     Origin rewritten to the machine's address,
-//   - only answers a browser that entered through a one-time ticket this
-//     plugin handed to the panel (its own HttpOnly, SameSite=Strict cookie),
-//     and only for its own Host, against other local programs and DNS
-//     rebinding.
+//   - only answers its own Host (against DNS rebinding), and only a browser
+//     that entered through a one-time ticket this plugin handed to the panel
+//     or a request from its own origin (see `allowed`), so other web pages
+//     cannot drive the machine through it.
 //
 // Upstream TLS is pinned to the machine's certificate, as the API calls are
 // (tls-pin.js): nothing is sent before the peer proved to be that certificate.
@@ -123,10 +123,21 @@ export function createViewProxy({ upstream, log = () => {} }) {
     return h
   }
 
-  function allowed(req) {
-    if (req.headers.host !== `127.0.0.1:${port}`) return false
+  // The ticket cookie is not enough on its own: the dsh desktop app draws its
+  // UI from a custom scheme (dsh-app://), so this frame is cross-site there and
+  // Chromium drops a SameSite=Strict cookie. Without the cookie, a request is
+  // still accepted when it comes from this proxy's own origin (scripts in the
+  // frame, WebSockets) or is a plain read with no Origin at all (navigations,
+  // assets). Another web page cannot send either: browsers always set Origin
+  // on writes and WebSockets, and cannot read a cross-origin response.
+  function allowed(req, upgrade = false) {
+    const self = `127.0.0.1:${port}`
+    if (req.headers.host !== self) return false
     const c = cookieValue(req.headers.cookie, VIEW_COOKIE)
-    return c !== undefined && same(c, viewSecret)
+    if (c !== undefined && same(c, viewSecret)) return true
+    const origin = req.headers.origin
+    if (origin !== undefined) return origin === `http://${self}`
+    return !upgrade && (req.method === 'GET' || req.method === 'HEAD')
   }
 
   async function onRequest(req, res) {
@@ -176,7 +187,7 @@ export function createViewProxy({ upstream, log = () => {} }) {
   }
 
   async function onUpgrade(req, socket, head) {
-    if (!allowed(req)) { socket.end('HTTP/1.1 403 Forbidden\r\n\r\n'); return }
+    if (!allowed(req, true)) { socket.end('HTTP/1.1 403 Forbidden\r\n\r\n'); return }
     if (!target || !jar) {
       try { await login() } catch { socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n'); return }
     }
