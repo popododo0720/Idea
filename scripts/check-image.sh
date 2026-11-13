@@ -43,19 +43,22 @@ fi
 
 # ---- export the filesystem
 mkdir -p "$WORK/fs"
-cid="$(podman create "$img")"
+# (An image without CMD or ENTRYPOINT, such as a Talos extension, needs a dummy command.)
+cid="$(podman create "$img" 2>/dev/null || podman create "$img" /nothing)"
 podman export "$cid" | tar -x -C "$WORK/fs" --no-same-owner \
   --exclude='dev/*' --exclude='proc/*' --exclude='sys/*' 2>/dev/null || true
 podman rm "$cid" >/dev/null
 cd "$WORK/fs"
 
 # ---- 2. files that must not exist
+# (Empty files are allowed: an image may carry one as a mount point for a
+# credential that arrives at run time.)
 hits="$(
   { find etc/ssh -maxdepth 1 -name 'ssh_host_*' 2>/dev/null
     find . -xdev \( -name 'id_rsa' -o -name 'id_ed25519' -o -name 'id_ecdsa' -o -name 'id_dsa' \
       -o -name '.netrc' -o -name '.git-credentials' -o -name '.pypirc' \
       -o -name 'authorized_keys' -o -name 'known_hosts' -o -name 'credentials.json' \
-      -o -name '.credentials.json' -o -name 'kubeconfig' -o -name 'talosconfig' \) -type f 2>/dev/null
+      -o -name '.credentials.json' -o -name 'kubeconfig' -o -name 'talosconfig' \) -type f -size +0 2>/dev/null
     find home root -mindepth 2 \( -path '*/.docker/config.json' -o -path '*/.aws/*' \
       -o -path '*/.config/gh/*' -o -path '*/.claude*' -o -path '*/.codex/*' \
       -o -path '*/.config/google-chrome/*' -o -path '*/.config/chromium/*' -o -path '*/.kube/*' \) 2>/dev/null

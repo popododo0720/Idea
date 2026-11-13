@@ -76,11 +76,10 @@ for i in "${images[@]:0:3}"; do
 done
 # The installer and the ISO carry our setup extension: it must hold no secrets
 # (an ISO built with --embed-secrets has another file name and is never sent).
-if podman run --rm --entrypoint /bin/sh "$LOCAL_REPO/idea-talos-setup:$installer_tag" -c \
-     'test -s /rootfs/usr/local/lib/containers/idea-setup/etc/idea/secrets.yaml' 2>/dev/null; then
-  die "the setup extension contains secrets"
-fi
-echo "ok:   setup extension holds no secrets"
+"$REPO_ROOT/scripts/check-image.sh" "$LOCAL_REPO/idea-talos-setup:$installer_tag" >/dev/null \
+  || die "image scan failed: idea-talos-setup"
+echo "ok:   image scan idea-talos-setup:$installer_tag"
+case "$(basename "$iso")" in *secrets*|*dev*) die "refusing to publish a development ISO" ;; esac
 
 [ "$LIST" = 0 ] || { echo; echo "nothing was published (--list)"; exit 0; }
 
