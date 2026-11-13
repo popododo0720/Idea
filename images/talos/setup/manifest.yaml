@@ -1,7 +1,7 @@
 version: v1alpha1
 metadata:
   name: idea-setup
-  version: 0.2.0
+  version: 0.3.0
   author: idea
   description: |
     Makes a machine booted from the idea ISO configure itself: generates the

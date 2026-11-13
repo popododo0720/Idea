@@ -1,0 +1,88 @@
+#!/bin/sh
+# Install page, served by the setup extension while it waits for a decision
+# (setup.sh): which disk to install to. It only exists before the install,
+# on a machine that has no configuration and no data we are allowed to touch
+# unasked. The choice is written to /work/choice for setup.sh to pick up.
+PATH=/bin
+W=/work
+
+esc() { sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'; }
+known() { while read -r dev _; do [ "$dev" = "$1" ] && return 0; done < "$W/disks"; return 1; }
+describe() { # dev size used model
+  if [ "$3" = 1 ]; then state='<b class="warn">데이터 있음</b>'; else state='비어 있음'; fi
+  printf '%s · %s GB · %s%s' "$1" "$2" "$state" "${4:+ · $(echo "$4" | esc)}"
+}
+
+head_html() {
+  printf 'Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\n\r\n'
+  cat <<'HTML'
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>idea 설치</title>
+<style>
+:root { color-scheme: light dark; --fg:#1b1f24; --bg:#f6f7f9; --card:#fff; --line:#d5d9df; --accent:#1f6feb; --bad:#b42318; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e8eb; --bg:#111418; --card:#1a1e24; --line:#30363d; --accent:#58a6ff; --bad:#ff7b72; } }
+body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 system-ui, sans-serif; }
+main { max-width:640px; margin:0 auto; padding:32px 16px 64px; }
+h1 { font-size:22px; margin:0 0 4px; } h2 { font-size:17px; margin:0 0 8px; }
+section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:20px; margin-top:16px; }
+label { display:block; padding:6px 0; } .hint { color:#6b7280; font-size:14px; margin:4px 0 0; }
+select { width:100%; padding:10px; margin-top:6px; border:1px solid var(--line); border-radius:6px; background:transparent; color:inherit; font:inherit; }
+button { margin-top:16px; padding:10px 18px; border:0; border-radius:6px; background:var(--bad); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+.warn, .err { color:var(--bad); } .err { font-weight:600; }
+</style></head><body><main>
+<h1>idea 설치</h1>
+HTML
+}
+foot_html() { echo '</main></body></html>'; }
+
+form() { # form [error]
+  head_html
+  [ -z "${1:-}" ] || echo "<p class=\"err\">$1</p>"
+  echo '<form method="post" action="/cgi-bin/install">'
+  echo '<section><h2>설치할 디스크</h2>'
+  echo '<p class="hint">고른 디스크는 통째로 지워지고 시스템이 설치됩니다.</p>'
+  while read -r dev size used model; do
+    echo "<label><input type=\"radio\" name=\"disk\" value=\"$dev\" required> $(describe "$dev" "$size" "$used" "$model")</label>"
+  done < "$W/disks"
+  echo '</section>'
+  if [ "$(grep -c . "$W/disks")" -gt 1 ]; then
+    echo '<section><h2>데이터를 둘 디스크</h2>'
+    echo '<p class="hint">저장소와 데이터베이스가 놓이는 곳입니다. 따로 고르면 그 디스크도 통째로 지워집니다.</p>'
+    echo '<select name="data"><option value="">설치할 디스크에 같이 둠</option>'
+    while read -r dev size used model; do
+      echo "<option value=\"$dev\">$(describe "$dev" "$size" "$used" "$model" | sed 's/<[^>]*>//g')</option>"
+    done < "$W/disks"
+    echo '</select></section>'
+  fi
+  echo '<section><label><input type="checkbox" name="confirm" value="yes" required> 고른 디스크의 내용이 모두 지워지는 것을 확인했습니다.</label>'
+  echo '<button type="submit">지우고 설치</button></section></form>'
+  foot_html
+}
+
+started() {
+  head_html
+  echo '<section><h2>설치를 시작했습니다</h2>'
+  echo "<p>$(sed -n 1p "$W/choice") 에 설치하고 다시 시작합니다. 10분쯤 뒤 기기 화면에 설정 화면 주소와 설정 코드가 나옵니다. 이 페이지는 더 쓰이지 않습니다.</p></section>"
+  foot_html
+}
+
+[ -s "$W/disks" ] || { head_html; echo '<section><p>아직 준비 중입니다. 잠시 뒤 새로 고치세요.</p></section>'; foot_html; exit 0; }
+[ ! -s "$W/choice" ] || { started; exit 0; }
+[ "${REQUEST_METHOD:-GET}" = POST ] || { form; exit 0; }
+
+len="${CONTENT_LENGTH:-0}"
+case "$len" in ''|*[!0-9]*) len=0 ;; esac
+[ "$len" -le 2048 ] || len=2048
+body="$(head -c "$len")"
+field() { echo "$body" | tr '&' '\n' | sed -n "s/^$1=//p" | head -n 1 | sed 's/%2[Ff]/\//g'; }
+disk="$(field disk)"; data="$(field data)"; confirm="$(field confirm)"
+
+known "$disk" || { form '설치할 디스크를 고르세요.'; exit 0; }
+[ -z "$data" ] || known "$data" || { form '데이터 디스크가 올바르지 않습니다.'; exit 0; }
+[ "$data" != "$disk" ] || data=""
+[ "$confirm" = yes ] || { form '지워지는 것을 확인해야 설치합니다.'; exit 0; }
+
+printf '%s\n%s\n' "$disk" "$data" > "$W/choice.tmp" && mv "$W/choice.tmp" "$W/choice"
+started

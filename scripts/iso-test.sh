@@ -5,7 +5,10 @@
 # etcd otherwise misses its deadlines while images are being pulled.
 # ISO_TEST_DISKS=1 gives it a single disk; ISO_TEST_MEMORY_MB sets its memory;
 # ISO_TEST_UEFI=1 boots it with UEFI firmware. The screen is a local VNC
-# display (for `virsh screenshot`).
+# display (for `virsh screenshot`). ISO_TEST_NETWORK=idea-static attaches it to
+# a network without DHCP (created on demand) to try static addressing.
+# ISO_TEST_USED_DISK=1 puts a partition table and a file system on the first
+# disk beforehand.
 #
 #   iso-test.sh create <iso>    create idea-iso-1 (blank disks) and boot the ISO
 #   iso-test.sh destroy         remove it
@@ -15,6 +18,7 @@
 need virsh virt-install
 
 NAME=idea-iso-1
+NET="${ISO_TEST_NETWORK:-$LIBVIRT_NETWORK}"
 MAC=52:54:00:1d:ea:21
 require_idea_name "$NAME"
 D="$IDEA_DATA_DIR/vm"
@@ -35,6 +39,33 @@ case "${1:-}" in
     [ -s "$iso" ] || die "no such ISO: $iso"
     destroy
     mkdir -p "$(dirname "$LOGF")"; : > "$LOGF"
+    if [ "$NET" = idea-static ] && ! net_exists idea-static; then
+      # NAT to the outside, but no DHCP server: 192.168.124.0/24, gateway .1
+      x="$(mktemp)"
+      cat > "$x" <<NETXML
+<network>
+  <name>idea-static</name>
+  <forward mode='nat'/>
+  <bridge name='idea-br1' stp='on' delay='0'/>
+  <dns enable='no'/>
+  <ip address='192.168.124.1' netmask='255.255.255.0'/>
+</network>
+NETXML
+      virsh net-define "$x" >/dev/null; rm -f "$x"
+    fi
+    net_active "$NET" || virsh net-start "$NET" >/dev/null
+    sysopt="size=${ISO_TEST_DISK_GB:-60},"
+    if [ "${ISO_TEST_USED_DISK:-0}" = 1 ]; then
+      # A first disk that already holds something: a partition table and a
+      # file system, as a machine that was in use would have.
+      raw="$(mktemp "$D/$NAME.XXXXXX.raw")"
+      truncate -s "${ISO_TEST_DISK_GB:-60}G" "$raw"
+      printf 'label: gpt\n,1GiB,L\n' | sfdisk -q "$raw"
+      mkfs.ext4 -q -F -E offset=1048576 "$raw" 1000000k
+      qemu-img convert -q -f raw -O qcow2 "$raw" "$D/$NAME.qcow2"
+      rm -f "$raw"
+      sysopt=""
+    fi
     boot=hd,cdrom
     [ "${ISO_TEST_UEFI:-0}" = 0 ] || boot=uefi,hd,cdrom
     data=()
@@ -42,10 +73,10 @@ case "${1:-}" in
     virt-install \
       --virt-type kvm --name "$NAME" \
       --memory "${ISO_TEST_MEMORY_MB:-16384}" --vcpus "${ISO_TEST_VCPUS:-8}" --cpu host-passthrough \
-      --disk "path=$D/$NAME.qcow2,size=${ISO_TEST_DISK_GB:-60},bus=virtio,format=qcow2,discard=unmap,cache=unsafe" \
+      --disk "path=$D/$NAME.qcow2,${sysopt}bus=virtio,format=qcow2,discard=unmap,cache=unsafe" \
       "${data[@]}" \
       --cdrom "$iso" --boot "$boot" --os-variant generic \
-      --network "network=$LIBVIRT_NETWORK,model=virtio,mac=$MAC" \
+      --network "network=$NET,model=virtio,mac=$MAC" \
       --graphics vnc,listen=127.0.0.1 --video virtio \
       --serial "file,path=$LOGF" --noautoconsole >/dev/null
     log "$NAME started; console log: $LOGF"

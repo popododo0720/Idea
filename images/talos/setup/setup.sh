@@ -45,33 +45,76 @@ done
 log "blank machine in maintenance mode: configuring it"
 
 # ---- 2. address
-ip=""
-for _ in $(seq 1 60); do
+# From DHCP, or set by hand on this console (Talos keeps that across the
+# install by itself).
+ip=""; n=0
+while :; do
   ip="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p')"
   [ -z "$ip" ] || break
-  sleep 2
+  [ $((n % 30)) -ne 0 ] || log "no IPv4 address yet. No DHCP here? Press F3 on this console, set a static address, Save."
+  n=$((n + 1)); sleep 2
 done
-[ -n "$ip" ] || { log "no IPv4 address (is there DHCP on this network?)"; exit 1; }
 
-# ---- 3. disks: first fixed disk of 16GB or more is the system disk, the next
-#         one (if any) holds persistent volumes. Override: idea.disk=/dev/xxx
-disks=""
+# ---- 3. disks
+# Candidates: fixed, writable, 16GB or more. A disk counts as used when it has
+# partitions or anything Talos recognises on it.
+used() {
+  for p in /sys/block/"$1"/"$1"*; do [ ! -e "$p" ] || return 0; done
+  sig="$($T get discoveredvolumes "$1" --insecure -n 127.0.0.1 -o yaml 2>/dev/null \
+    | sed -n 's/^ *name: *//p' | tr -d '"' | head -n 1)"
+  [ -n "$sig" ]
+}
+: > "$W/disks"
 for d in /sys/block/*; do
   name="${d##*/}"
   case "$name" in loop*|ram*|zram*|sr*|dm-*|md*|nbd*|fd*) continue ;; esac
   [ "$(cat "$d/removable" 2>/dev/null || echo 1)" = 0 ] || continue
   [ "$(cat "$d/ro" 2>/dev/null || echo 1)" = 0 ] || continue
-  [ "$(cat "$d/size")" -ge 33554432 ] || continue   # 512-byte sectors
-  disks="$disks /dev/$name"
+  sectors="$(cat "$d/size")"   # 512-byte sectors
+  [ "$sectors" -ge 33554432 ] || continue
+  u=0; ! used "$name" || u=1
+  model="$(cat "$d/device/model" 2>/dev/null | tr -s ' ' | sed 's/^ //; s/ $//' || true)"
+  echo "/dev/$name $((sectors / 2097152)) $u $model" >> "$W/disks"
 done
-set -- $disks
+count="$(grep -c . "$W/disks" || true)"
+[ "$count" -ge 1 ] || { log "no disk of 16GB or more found"; sleep 30; exit 1; }
+is_used() { while read -r dev _ u _; do [ "$dev" != "$1" ] || { [ "$u" = 1 ]; return; }; done < "$W/disks"; return 1; }
+listed()  { while read -r dev _; do [ "$dev" != "$1" ] || return 0; done < "$W/disks"; return 1; }
+
 sysdisk="$(arg idea.disk)"
 datadisk=""
-if [ -z "$sysdisk" ]; then
-  [ "$#" -ge 1 ] || { log "no disk of 16GB or more found"; exit 1; }
-  sysdisk="$1"; datadisk="${2:-}"
+if [ -n "$sysdisk" ]; then
+  # Chosen on the kernel command line: no questions.
+  listed "$sysdisk" || { log "idea.disk=$sysdisk is not a usable disk"; sleep 30; exit 1; }
+elif [ "$count" = 1 ] && ! is_used "$(sed -n 's/ .*//p;q' "$W/disks")"; then
+  # One empty disk: nothing to lose and nothing to choose.
+  sysdisk="$(sed -n 's/ .*//p;q' "$W/disks")"
 else
-  for d in "$@"; do [ "$d" = "$sysdisk" ] || { datadisk="$d"; break; }; done
+  # Several disks, or data on one: a person decides, on the install page.
+  rm -f "$W/choice"
+  httpd -f -p 8080 -h /www &
+  hp=$!
+  n=0
+  while [ ! -s "$W/choice" ]; do
+    if [ $((n % 60)) -eq 0 ]; then
+      log "=============================================================="
+      log "this machine has $count disk(s); choose where to install:"
+      log "install page   http://$ip:8080/"
+      log "=============================================================="
+    fi
+    n=$((n + 1)); sleep 2
+  done
+  sleep 2   # let the page answer the browser
+  kill "$hp" 2>/dev/null || true
+  sysdisk="$(sed -n 1p "$W/choice")"
+  datadisk="$(sed -n 2p "$W/choice")"
+  listed "$sysdisk" || { log "invalid choice"; exit 1; }
+fi
+# A data disk that is not empty has to be wiped before Talos will use it.
+if [ -n "$datadisk" ] && is_used "$datadisk"; then
+  log "wiping data disk $datadisk"
+  $T wipe disk "${datadisk#/dev/}" --insecure -n 127.0.0.1 \
+    || { log "could not wipe $datadisk"; sleep 30; exit 1; }
 fi
 log "address $ip, system disk $sysdisk, data disk ${datadisk:-none (system disk)}"
 

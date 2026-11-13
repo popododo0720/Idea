@@ -5,13 +5,14 @@ ARG BUSYBOX_IMAGE
 FROM ${BUSYBOX_IMAGE}-musl AS root
 RUN mkdir -p /r/bin /r/work /r/etc/idea/patches /r/proc /r/sys /r/dev /r/tmp /r/run \
  && cp /bin/busybox /r/bin/busybox \
- && for a in sh sed cat cp rm seq sleep ip tail head tr echo; do ln -s busybox /r/bin/$a; done
+ && for a in sh sed cat cp rm mv seq sleep ip tail head tr grep echo httpd; do ln -s busybox /r/bin/$a; done
 COPY talosctl /r/bin/talosctl
 COPY setup.sh bootstrap.sh /r/
+COPY www/ /r/www/
 COPY setup.env /r/etc/idea/setup.env
 COPY patches/ /r/etc/idea/patches/
 # Mount points for the files Talos binds in from ExtensionServiceConfig.
-RUN chmod 0755 /r/bin/talosctl /r/setup.sh /r/bootstrap.sh \
+RUN chmod 0755 /r/bin/talosctl /r/setup.sh /r/bootstrap.sh /r/www/cgi-bin/install \
  && : > /r/etc/idea/secrets.yaml && : > /r/etc/idea/talosconfig && : > /r/etc/idea/setup-code
 
 FROM scratch

@@ -38,7 +38,7 @@ B="$IDEA_DATA_DIR/iso/build"
 rm -rf "$B"; mkdir -p "$B/ext/patches" "$B/out"
 
 # ---- 1. setup extension: scripts + talosctl + the config patches (no secrets)
-cp "$REPO_ROOT/images/talos/setup/"* "$B/ext/"
+cp -r "$REPO_ROOT/images/talos/setup/." "$B/ext/"
 cp "$REPO_ROOT/images/talos/patches/base.yaml" "$B/ext/patches/10-base.yaml"
 if [ "$DEV" = 1 ]; then
   "$REPO_ROOT/scripts/render-bootstrap.sh" dev
