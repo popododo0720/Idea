@@ -9,7 +9,7 @@
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
-  "files": ["lib/index.js", "lib/client.js", "cordis.patch.yml", "README.md"],
+  "files": ["lib/index.js", "lib/view-proxy.js", "lib/client.js", "cordis.patch.yml", "README.md"],
   "engines": { "dsh": ">=0.2.2-rc.1 <0.3.0" },
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },

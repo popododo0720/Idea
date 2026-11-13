@@ -19,6 +19,7 @@ import { mkdir, readFile, rm, writeFile, rename } from 'node:fs/promises'
 import { request as httpsRequest } from 'node:https'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
+import { createViewProxy } from './view-proxy.js'
 
 export const name = 'idea'
 export const inject = ['webServer', 'connection']
@@ -150,6 +151,25 @@ const FORWARD = [
 ]
 
 export function apply(ctx) {
+  // The machine's dsh, framed by the panel through a local proxy.
+  const view = createViewProxy({
+    upstream: async () => {
+      if (process.env.IDEA_DEV_DSH_LOGIN) {
+        // Development only: a dsh web started by hand, no pairing involved.
+        const login = new URL(process.env.IDEA_DEV_DSH_LOGIN)
+        return { url: login.origin, login: login.href }
+      }
+      const p = await loadPairing()
+      if (!p) throw new Error('not paired')
+      const r = await call(p.url, 'GET', '/api/v1/dsh', { token: p.token, pin: p.cert })
+      const out = JSON.parse(r.body.toString('utf8') || '{}')
+      if (r.status !== 200 || typeof out.login !== 'string') throw new Error(out.error || `the machine answered HTTP ${r.status}`)
+      // The machine's dsh serves the same certificate as its API.
+      return { url: out.url, login: out.login, cert: p.cert }
+    },
+  })
+  ctx.effect(() => () => view.close(), 'idea: view proxy')
+
   const rejected = (req, res) => {
     const rejection = ctx.connection.requestRejection(req)
     if (rejection === undefined) return false
@@ -164,6 +184,7 @@ export function apply(ctx) {
     const method = req.method || 'GET'
 
     if (sub === '/state' && method === 'GET') {
+      if (process.env.IDEA_DEV_DSH_LOGIN) { sendJson(res, 200, { paired: true, dev: true, url: new URL(process.env.IDEA_DEV_DSH_LOGIN).origin }); return }
       const p = await loadPairing()
       sendJson(res, 200, p
         ? { paired: true, url: p.url, host: p.host, device: p.id, fingerprint: fingerprint(p.cert), pairedAt: p.pairedAt }
@@ -171,22 +192,32 @@ export function apply(ctx) {
       return
     }
 
+    if (sub === '/view' && method === 'GET') {
+      if (!process.env.IDEA_DEV_DSH_LOGIN && !(await loadPairing())) { sendJson(res, 409, { error: 'not paired' }); return }
+      try {
+        sendJson(res, 200, { src: await view.enterUrl() })
+      } catch (e) {
+        sendJson(res, 502, { error: `could not reach the machine's dsh: ${e.message}` })
+      }
+      return
+    }
+
     if (sub === '/pair' && method === 'POST') {
       const input = await readJson(req)
       const base = normalizeUrl(input.url)
       const code = typeof input.code === 'string' ? input.code.trim() : ''
-      if (!base) { sendJson(res, 400, { error: '주소는 https://<기기 주소>:30443 형식이어야 합니다.' }); return }
-      if (!code) { sendJson(res, 400, { error: '설정 코드를 입력하세요.' }); return }
+      if (!base) { sendJson(res, 400, { error: 'The address must look like https://<machine>:30443' }); return }
+      if (!code) { sendJson(res, 400, { error: 'Enter the setup code.' }); return }
       let r
       try {
         r = await call(base, 'POST', '/api/v1/pair', { body: { code, device: `dsh on ${hostname()}`.slice(0, 64) } })
       } catch (e) {
-        sendJson(res, 502, { error: `기기에 연결하지 못했습니다: ${e.message}` }); return
+        sendJson(res, 502, { error: `Could not reach the machine: ${e.message}` }); return
       }
       let out = {}
       try { out = JSON.parse(r.body.toString('utf8')) } catch { /* not JSON */ }
       if (r.status !== 200 || typeof out.token !== 'string' || !r.peerRaw) {
-        const msg = r.status === 401 ? '설정 코드가 맞지 않습니다.' : (out.error || `기기가 HTTP ${r.status}로 답했습니다.`)
+        const msg = r.status === 401 ? 'Wrong setup code.' : (out.error || `The machine answered HTTP ${r.status}.`)
         sendJson(res, r.status === 401 ? 401 : 502, { error: msg }); return
       }
       const cert = toPem(r.peerRaw)
@@ -203,6 +234,7 @@ export function apply(ctx) {
         try { await call(p.url, 'DELETE', `/api/v1/devices/${p.id}`, { token: p.token, pin: p.cert }) } catch { /* offline */ }
         await rm(pairingFile(), { force: true })
       }
+      view.reset()
       sendJson(res, 200, { paired: false })
       return
     }
@@ -217,7 +249,7 @@ export function apply(ctx) {
       try {
         r = await call(p.url, method, `/api/v1${path}${url.search}`, { body, token: p.token, pin: p.cert })
       } catch (e) {
-        sendJson(res, 502, { error: `기기에 연결하지 못했습니다: ${e.message}`, offline: true }); return
+        sendJson(res, 502, { error: `Could not reach the machine: ${e.message}`, offline: true }); return
       }
       res.writeHead(r.status, {
         'content-type': String(r.headers['content-type'] || 'application/json'),
