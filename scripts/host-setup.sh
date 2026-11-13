@@ -15,15 +15,22 @@ BIN=/usr/local/bin
 mkdir -p "$IDEA_DATA_DIR"/{vm,iso,registry,build,notes,dl}
 
 # ---------------------------------------------------------------- packages
+# command:package pairs. A command that is already on PATH (from apt or from
+# anywhere else) is left alone.
 pkgs=()
-for p in qemu-system-x86 libvirt-daemon-system virtinst podman; do
-  dpkg -s "$p" >/dev/null 2>&1 || pkgs+=("$p")
+for cp in curl:curl git:git jq:jq envsubst:gettext-base qemu-system-x86_64:qemu-system-x86 \
+          virsh:libvirt-daemon-system virt-install:virtinst podman:podman; do
+  command -v "${cp%%:*}" >/dev/null 2>&1 || pkgs+=("${cp#*:}")
 done
 if [ "${#pkgs[@]}" -gt 0 ]; then
+  command -v apt-get >/dev/null 2>&1 || die "missing packages (${pkgs[*]}) and no apt-get on this host"
   log "apt install: ${pkgs[*]}"
-  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${pkgs[@]}"
+  apt-get update -q
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates "${pkgs[@]}"
 fi
-need jq yq curl git virsh virt-install podman
+need jq curl git envsubst virsh virt-install podman
+systemctl is-active --quiet libvirtd.socket libvirtd.service 2>/dev/null \
+  || systemctl start libvirtd.service 2>/dev/null || true
 
 # podman keeps images under the data dir, never under /var/lib.
 if [ ! -e /etc/containers/storage.conf ]; then
@@ -89,6 +96,24 @@ install_bin() {
 }
 
 gh=https://github.com
+
+# yq must be the Go implementation (github.com/mikefarah/yq); the apt package
+# of the same name is a different program. Its release publishes a multi-hash
+# checksum table, so the sha256 is pinned in versions.env instead.
+if ! { command -v yq >/dev/null 2>&1 && yq --version 2>/dev/null | grep -q mikefarah; }; then
+  if ! installed yq "$YQ_VERSION" "$BIN/yq"; then
+    log "download yq $YQ_VERSION"
+    mkdir -p "$DL/yq-$YQ_VERSION"
+    curl -fsSL --retry 3 -o "$DL/yq-$YQ_VERSION/yq_linux_amd64" \
+      "$gh/mikefarah/yq/releases/download/$YQ_VERSION/yq_linux_amd64"
+    echo "$YQ_SHA256  $DL/yq-$YQ_VERSION/yq_linux_amd64" | sha256sum -c --quiet - \
+      || die "yq: checksum mismatch"
+    install -m 0755 "$DL/yq-$YQ_VERSION/yq_linux_amd64" "$BIN/yq"
+    mark yq "$YQ_VERSION"
+    log "installed yq $YQ_VERSION"
+  fi
+fi
+need yq
 install_bin talosctl "$TALOS_VERSION" \
   "$gh/siderolabs/talos/releases/download/$TALOS_VERSION/talosctl-linux-amd64" \
   "$gh/siderolabs/talos/releases/download/$TALOS_VERSION/sha256sum.txt"
@@ -147,7 +172,6 @@ if ! net_exists "$LIBVIRT_NETWORK"; then
   <ip address='$GATEWAY_IP' netmask='255.255.255.0'>
     <dhcp>
       <range start='$DHCP_RANGE_START' end='$DHCP_RANGE_END'/>
-      <host mac='$VM_MAC' name='$VM_NAME' ip='$NODE_IP'/>
     </dhcp>
   </ip>
 </network>

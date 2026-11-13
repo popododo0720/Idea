@@ -1,7 +1,6 @@
-# The main agent image is also what the controller starts per task (as a Job);
-# this standing pod is for trying delegation by hand.
+# SSH key pair the main agent uses to reach work pods. The main agent itself
+# is started per task by the controller (as a Job).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ssh-key.yaml
-  - main.yaml

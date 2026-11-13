@@ -1,0 +1,23 @@
+# Runs on every boot. Acts only while the machine has no configuration
+# (maintenance mode, i.e. booted from the ISO); otherwise exits at once.
+name: idea-setup
+container:
+  entrypoint: ./bin/sh
+  args:
+    - /setup.sh
+  environment:
+    - PATH=/bin
+    - HOME=/work
+  mounts:
+    # Scratch space in RAM (the host's /run); the root filesystem is read-only.
+    - source: /run/idea-setup
+      destination: /work
+      type: bind
+      options:
+        - bind
+        - rw
+depends:
+  - network:
+      - addresses
+restart: untilSuccess
+logToConsole: true

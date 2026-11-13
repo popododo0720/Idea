@@ -7,7 +7,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 1m
-  url: oci://192.168.123.1:5000/idea/deploy
+  url: oci://192.168.123.1:5000/popododo0720/idea-deploy
   ref:
     tag: dev
   insecure: true

@@ -1,0 +1,13 @@
+# Appended to the headless profile patch by idea-claude-subagent once the
+# plugin is installed.
+
+# Claude Code subagent (official Agent SDK). The provider strips
+# credential-looking variables from the child environment, so the token a
+# human provided (Secret -> pod env) is handed over explicitly. Without the
+# token the provider stays unused.
+- id: subagent-claude-code
+  config:
+    env: !!js >-
+      process.env.CLAUDE_CODE_OAUTH_TOKEN
+        ? { CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN }
+        : {}

@@ -19,13 +19,18 @@ esac
 "$REPO_ROOT/scripts/check-secrets.sh"
 
 cd "$REPO_ROOT"
-for d in clusters/dev bootstrap/flux infra/controllers infra/config platform apps; do
+# A file that .gitignore hides is in the artifact but not in the repository:
+# the cluster works while a clone of the repo does not build.
+hidden="$(git ls-files --others --ignored --exclude-standard -- deploy images controller plugins examples scripts)"
+[ -z "$hidden" ] || die "needed files are ignored by .gitignore (rename them): $(echo "$hidden" | tr '\n' ' ')"
+
+for d in clusters/dev clusters/public bootstrap/flux infra/controllers infra/config platform apps apps-dev; do
   kubectl kustomize "deploy/$d" >/dev/null || die "deploy/$d does not build"
 done
 
 rev="$(git rev-parse --abbrev-ref HEAD)@sha1:$(git rev-parse HEAD)"
 [ -z "$(git status --porcelain -- deploy)" ] || rev="$rev-dirty"
-url="oci://$REGISTRY_ADDR/idea/deploy:dev"
+url="oci://$LOCAL_REPO/idea-deploy:dev"
 
 log "pushing deploy/ to $url ($rev)"
 flux push artifact "$url" \

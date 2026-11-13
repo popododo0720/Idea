@@ -12,9 +12,10 @@ if [ "${1:-}" = "--tidy" ]; then
   exit 0
 fi
 
-img="$REGISTRY_ADDR/idea/controller:$CONTROLLER_IMAGE_VERSION"
+img="$LOCAL_REPO/idea-controller:$CONTROLLER_IMAGE_VERSION"
 log "building $img"
 podman build \
+  --label "org.opencontainers.image.source=$SOURCE_URL" \
   --build-arg GO_IMAGE="$GO_IMAGE" \
   --build-arg DEBIAN_TAG="$DEBIAN_TAG" \
   -f "$REPO_ROOT/controller/Dockerfile" \

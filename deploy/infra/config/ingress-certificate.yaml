@@ -1,5 +1,6 @@
 # Default certificate for the Cilium ingress (referenced by name from the
-# Cilium values). INGRESS_IP is substituted by the Flux Kustomization.
+# Cilium values). It is issued for the name only: the ingress needs SNI, so
+# HTTPS by bare IP address is not served anyway.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -10,8 +11,6 @@ spec:
   commonName: idea
   dnsNames:
     - idea.internal
-  ipAddresses:
-    - ${INGRESS_IP}
   duration: 8760h
   renewBefore: 720h
   privateKey:

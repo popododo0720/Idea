@@ -1,0 +1,7 @@
+# Entry point for machines installed from the public ISO: follows the deploy
+# artifact published to ghcr.io.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+  - root.yaml

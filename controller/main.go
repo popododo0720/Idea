@@ -163,6 +163,19 @@ func main() {
 		}
 	}()
 
+	// Setup page for the owner (HTTPS, NodePort): see setup.go.
+	setup, err := c.setupServer()
+	if err != nil {
+		slog.Error("setup server", "err", err)
+		os.Exit(1)
+	}
+	go func() {
+		if err := setup.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			slog.Error("setup server", "err", err)
+			os.Exit(1)
+		}
+	}()
+
 	go c.loop(ctx, "forgejo-state", 30*time.Second, c.reconcileForgejo)
 	go c.loop(ctx, "issue-sweep", 60*time.Second, c.sweepIssues)
 	go c.loop(ctx, "tasks", 5*time.Second, c.reconcileTasks)
@@ -172,6 +185,7 @@ func main() {
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdown)
+	_ = setup.Shutdown(shutdown)
 }
 
 func (c *Controller) loop(ctx context.Context, name string, every time.Duration, fn func(context.Context) error) {

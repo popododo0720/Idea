@@ -5,14 +5,13 @@
 . "$(dirname "$0")/lib.sh"
 need podman
 
-img="$REGISTRY_ADDR/idea/worker:$WORKER_IMAGE_VERSION"
+img="$LOCAL_REPO/idea-worker:$WORKER_IMAGE_VERSION"
 log "building $img"
 podman build \
+  --label "org.opencontainers.image.source=$SOURCE_URL" \
   --build-arg DEBIAN_TAG="$DEBIAN_TAG" \
   --build-arg NODE_VERSION="$NODE_VERSION" \
   --build-arg NODE_SHA256="$NODE_SHA256" \
-  --build-arg CHROME_VERSION="$CHROME_VERSION" \
-  --build-arg CHROME_DEB_SHA256="$CHROME_DEB_SHA256" \
   --build-arg DSH_VERSION="$DSH_VERSION" \
   --build-arg FORGEJO_RUNNER_VERSION="$FORGEJO_RUNNER_VERSION" \
   --build-arg FORGEJO_RUNNER_SHA256="$FORGEJO_RUNNER_SHA256" \

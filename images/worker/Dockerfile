@@ -1,4 +1,6 @@
-# Worker golden image: Debian + XFCE + VNC + noVNC + Chrome + Node.js + sshd.
+# Worker golden image: Debian + XFCE + VNC + noVNC + Chromium + Node.js + sshd.
+# Everything in it may be redistributed (no Google Chrome, no Claude Agent SDK),
+# so the image can live in a public registry.
 # Runs as a non-root user. Contains no keys, tokens or logged-in state:
 # SSH host keys are generated at container start, credentials are mounted.
 # Never pass secrets through ARG or ENV.
@@ -8,8 +10,6 @@ FROM docker.io/library/debian:${DEBIAN_TAG}
 
 ARG NODE_VERSION
 ARG NODE_SHA256
-ARG CHROME_VERSION
-ARG CHROME_DEB_SHA256
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8
@@ -24,14 +24,9 @@ RUN apt-get update \
       fonts-liberation fonts-noto-cjk \
  && rm -rf /var/lib/apt/lists/*
 
-# Google Chrome, pinned by version and checksum. The package's own apt source
-# is removed so the browser is never upgraded behind our back.
-RUN curl -fsSL -o /tmp/chrome.deb \
-      "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_${CHROME_VERSION}-1_amd64.deb" \
- && echo "${CHROME_DEB_SHA256}  /tmp/chrome.deb" | sha256sum -c - \
- && apt-get update \
- && apt-get install -y --no-install-recommends /tmp/chrome.deb \
- && rm -f /tmp/chrome.deb /etc/apt/sources.list.d/google-chrome* /etc/cron.daily/google-chrome \
+# Chromium from Debian (open source; Google Chrome may not be redistributed).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends chromium \
  && rm -rf /var/lib/apt/lists/*
 
 # Node.js, pinned by version and checksum.
@@ -71,7 +66,8 @@ RUN rm -f /etc/ssh/ssh_host_* \
  && useradd --create-home --uid 1000 --shell /bin/bash idea
 
 COPY rootfs/ /
-RUN chmod 0755 /usr/local/bin/idea-entrypoint /usr/local/bin/idea-pr /usr/local/bin/idea-runner
+RUN chmod 0755 /usr/local/bin/idea-entrypoint /usr/local/bin/idea-pr /usr/local/bin/idea-runner \
+      /usr/local/bin/idea-claude-subagent
 
 USER 1000:1000
 WORKDIR /home/idea
@@ -80,15 +76,18 @@ ENV HOME=/home/idea \
     DSH_TELEMETRY_MODE=DISABLED
 
 # dsh profiles, prepared at build time so a pod needs no install step:
-#   headless  one-shot tasks + browser control + Claude Code subagent
+#   headless  one-shot tasks + browser control
 #   desk      headless + desktop control
 # Plugins are the official packages at the same version as dsh itself.
+# The Claude Code subagent is not in the image (its Agent SDK is proprietary);
+# a pod that is given a Claude token installs it at start
+# (idea-claude-subagent).
 ARG DSH_VERSION
+ENV DSH_VERSION=${DSH_VERSION}
 RUN dsh --profile headless --dump-config >/dev/null \
  && dsh plugin --profile headless add \
       "@deepseek-ai/dsh-browser-use@${DSH_VERSION}" \
       "@deepseek-ai/dsh-experimental-browser-use-chrome-devtools-mcp@${DSH_VERSION}" \
-      "@deepseek-ai/dsh-subagent-claude-code@${DSH_VERSION}" \
  && dsh --profile desk --from-default-profile headless --dump-config >/dev/null \
  && dsh plugin --profile desk add \
       "@deepseek-ai/dsh-computer-use@${DSH_VERSION}" \

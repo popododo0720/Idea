@@ -5,9 +5,10 @@
 . "$(dirname "$0")/lib.sh"
 need podman
 
-img="$REGISTRY_ADDR/idea/main:$MAIN_IMAGE_VERSION"
+img="$LOCAL_REPO/idea-main:$MAIN_IMAGE_VERSION"
 log "building $img"
 podman build \
+  --label "org.opencontainers.image.source=$SOURCE_URL" \
   --build-arg DEBIAN_TAG="$DEBIAN_TAG" \
   --build-arg NODE_VERSION="$NODE_VERSION" \
   --build-arg NODE_SHA256="$NODE_SHA256" \

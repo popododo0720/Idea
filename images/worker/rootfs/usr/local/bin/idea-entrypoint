@@ -45,5 +45,12 @@ umask 077
 } > "$RUN/env"
 umask 022
 
+# Optional Claude Code subagent: installed now, from the npm registry, only
+# when this pod was given a token. A failure leaves the pod working without it.
+if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+  timeout 180 /usr/local/bin/idea-claude-subagent > "$RUN/log/claude-subagent.log" 2>&1 \
+    || echo "idea-entrypoint: Claude Code subagent not installed (see $RUN/log/claude-subagent.log)" >&2
+fi
+
 export IDEA_GEOMETRY="${IDEA_GEOMETRY:-1440x900}"
 exec /usr/bin/supervisord -n -c /etc/idea/supervisord.conf

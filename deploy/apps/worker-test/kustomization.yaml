@@ -1,8 +1,0 @@
-# One hand-declared work pod (w1) for stage 4-6 checks. From stage 7 on the
-# controller creates work pods from the same shape.
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-namespace: idea-work
-resources:
-  - namespace.yaml
-  - worker.yaml

@@ -1,10 +1,8 @@
-# Entry point for the dev cluster. The root Kustomization applies this
-# directory; everything else hangs off the Flux Kustomizations listed here.
+# Entry point for the dev cluster: follows the deploy artifact in the local
+# registry and adds the development fixtures.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  - ../base
   - root.yaml
-  - flux.yaml
-  - infra.yaml
-  - platform.yaml
-  - apps.yaml
+  - apps-dev.yaml

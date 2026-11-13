@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: w1
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      idea.dev/worker: w1
+  template:
+    metadata:
+      labels:
+        idea.dev/worker: w1
+        idea.dev/role: worker
+    spec:
+      runtimeClassName: kata
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: desktop
+          image: ghcr.io/popododo0720/idea-worker:0.6.0
+          env:
+            - name: IDEA_PATH_PREFIX
+              value: /vm/w1
+            # Human-provided key (scripts/apply-secrets.sh). Optional: the pod
+            # must start without it.
+            - name: DEEPSEEK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: idea-model-keys
+                  key: DEEPSEEK_API_KEY
+                  optional: true
+            - name: CLAUDE_CODE_OAUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: idea-model-keys
+                  key: CLAUDE_CODE_OAUTH_TOKEN
+                  optional: true
+          ports:
+            - name: novnc
+              containerPort: 6080
+            - name: ssh
+              containerPort: 2222
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          # Guest VM size = Kata base (2 GiB) + this limit.
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /vm/w1/vnc.html
+              port: novnc
+            periodSeconds: 5
+          volumeMounts:
+            - name: shm
+              mountPath: /dev/shm
+            - name: ssh-authorized
+              mountPath: /etc/idea/authorized_keys
+              readOnly: true
+      volumes:
+        # Chrome needs more shared memory than the 64 MiB default.
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+        # Public key of the main agent (generated in the cluster).
+        - name: ssh-authorized
+          secret:
+            secretName: idea-worker-ssh-pub
+            optional: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: w1
+spec:
+  selector:
+    idea.dev/worker: w1
+  ports:
+    - name: novnc
+      port: 6080
+      targetPort: novnc
+    - name: ssh
+      port: 2222
+      targetPort: ssh
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: w1
+spec:
+  ingressClassName: cilium
+  tls:
+    - hosts:
+        - idea.internal
+  rules:
+    - http:
+        paths:
+          - path: /vm/w1/
+            pathType: Prefix
+            backend:
+              service:
+                name: w1
+                port:
+                  name: novnc

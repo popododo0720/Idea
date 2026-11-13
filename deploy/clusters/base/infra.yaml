@@ -31,7 +31,3 @@ spec:
   prune: true
   wait: true
   timeout: 5m
-  postBuild:
-    substitute:
-      # Address the ingress certificate is issued for (the node IP).
-      INGRESS_IP: "192.168.123.10"

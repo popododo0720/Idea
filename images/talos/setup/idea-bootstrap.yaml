@@ -1,0 +1,26 @@
+# Runs once the machine has its configuration (which carries the admin
+# talosconfig for this service): bootstraps etcd on the single node, then
+# stays up and repeats the setup page address and setup code on the console.
+name: idea-bootstrap
+container:
+  entrypoint: ./bin/sh
+  args:
+    - /bootstrap.sh
+  environment:
+    - PATH=/bin
+    - HOME=/work
+  mounts:
+    # Scratch space in RAM (the host's /run); the root filesystem is read-only.
+    - source: /run/idea-bootstrap
+      destination: /work
+      type: bind
+      options:
+        - bind
+        - rw
+depends:
+  - configuration: true
+  - service: apid
+  - network:
+      - addresses
+restart: always
+logToConsole: true

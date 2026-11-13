@@ -25,7 +25,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: controller
-          image: 192.168.123.1:5000/idea/controller:0.1.0
+          image: ghcr.io/popododo0720/idea-controller:0.2.0
           env:
             - name: FORGEJO_URL
               value: http://forgejo-http:3000
@@ -34,9 +34,9 @@ spec:
             - name: FORGEJO_REPO
               value: hello-calc
             - name: WORKER_IMAGE
-              value: 192.168.123.1:5000/idea/worker:0.5.0
+              value: ghcr.io/popododo0720/idea-worker:0.6.0
             - name: MAIN_IMAGE
-              value: 192.168.123.1:5000/idea/main:0.1.2
+              value: ghcr.io/popododo0720/idea-main:0.1.2
             # actions: wait for the Forgejo Actions result on the pull request.
             # controller: run the tests in a clean Kata pod ourselves.
             - name: GATE_MODE
@@ -66,6 +66,8 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            - name: setup
+              containerPort: 8443
           readinessProbe:
             httpGet:
               path: /healthz
@@ -95,3 +97,21 @@ spec:
     - name: http
       port: 8080
       targetPort: http
+---
+# Setup page for the owner: https://<machine address>:30443/
+# A NodePort, because the ingress only answers to its host name and a freshly
+# installed machine is first reached by address.
+apiVersion: v1
+kind: Service
+metadata:
+  name: idea-setup
+  namespace: idea-system
+spec:
+  type: NodePort
+  selector:
+    idea.dev/role: controller
+  ports:
+    - name: setup
+      port: 443
+      targetPort: setup
+      nodePort: 30443

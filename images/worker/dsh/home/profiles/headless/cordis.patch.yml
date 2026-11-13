@@ -1,7 +1,7 @@
 # Profile patch for one-shot tasks in the idea worker
 # (dsh headless "<task>"), applied after every bundle layer.
 
-# Browser control through the desktop's Chrome, visible on DISPLAY=:1.
+# Browser control through the desktop's Chromium, visible on DISPLAY=:1.
 # Official in-repo provider; it runs a pinned chrome-devtools-mcp.
 - insert:
     - id: browser-use
@@ -11,15 +11,4 @@
       config:
         mode: launch
         headless: false
-        executablePath: /usr/bin/google-chrome
-
-# Claude Code subagent (official Agent SDK). The provider strips
-# credential-looking variables from the child environment, so the token a
-# human provided (Secret -> pod env) is handed over explicitly. Without the
-# token the provider stays unused.
-- id: subagent-claude-code
-  config:
-    env: !!js >-
-      process.env.CLAUDE_CODE_OAUTH_TOKEN
-        ? { CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN }
-        : {}
+        executablePath: /usr/bin/chromium

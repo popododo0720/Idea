@@ -1,4 +1,5 @@
-# Rendered by scripts/talos-apply.sh with values from config.env.
+# Development ISOs only (scripts/build-iso.sh --dev), rendered with values
+# from config.env. The public ISO takes DNS from DHCP and pulls from ghcr.io.
 
 # idea-net hands out addresses but no DNS server.
 apiVersion: v1alpha1
@@ -10,5 +11,13 @@ ${NAMESERVER_LIST}
 apiVersion: v1alpha1
 kind: RegistryMirrorConfig
 name: ${REGISTRY_ADDR}
+endpoints:
+  - url: http://${REGISTRY_ADDR}
+---
+# Images named ghcr.io/... are looked up in the local registry first (what was
+# built on this host); everything else on ghcr.io falls through to the real one.
+apiVersion: v1alpha1
+kind: RegistryMirrorConfig
+name: ghcr.io
 endpoints:
   - url: http://${REGISTRY_ADDR}

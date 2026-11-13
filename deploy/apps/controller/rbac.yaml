@@ -20,6 +20,14 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "create", "delete"]
+  # Model keys entered on the setup page.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["idea-model-keys"]
+    verbs: ["get", "update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -55,6 +63,10 @@ rules:
     resources: ["secrets"]
     resourceNames: ["idea-worker-forgejo", "idea-runner-registration"]
     verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["idea-model-keys"]
+    verbs: ["get", "update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -65,6 +77,33 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: idea-controller
+subjects:
+  - kind: ServiceAccount
+    name: idea-controller
+    namespace: idea-system
+---
+# The setup code and admin configuration the machine planted at install time
+# (images/talos/setup). Read-only, that one Secret.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: idea-controller-setup
+  namespace: kube-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["idea-setup"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: idea-controller-setup
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: idea-controller-setup
 subjects:
   - kind: ServiceAccount
     name: idea-controller

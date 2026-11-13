@@ -1,0 +1,26 @@
+# Root source: the deploy/ tree published as an OCI artifact (scripts/publish.sh).
+# Installed machines follow the "stable" tag, so a new release reaches them
+# without reinstalling.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: idea-deploy
+  namespace: flux-system
+spec:
+  interval: 10m
+  url: oci://ghcr.io/popododo0720/idea-deploy
+  ref:
+    tag: stable
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: idea-root
+  namespace: flux-system
+spec:
+  interval: 10m
+  sourceRef:
+    kind: OCIRepository
+    name: idea-deploy
+  path: ./clusters/public
+  prune: true

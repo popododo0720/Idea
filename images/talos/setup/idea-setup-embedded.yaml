@@ -1,0 +1,26 @@
+# Development / per-site ISOs (build-iso.sh --embed-secrets): same as idea-setup,
+# but with the cluster secrets that were built into the ISO. Its configuration
+# only exists on such an ISO; everywhere else this service waits forever.
+name: idea-setup-embedded
+container:
+  entrypoint: ./bin/sh
+  args:
+    - /setup.sh
+    - embedded
+  environment:
+    - PATH=/bin
+    - HOME=/work
+  mounts:
+    # Scratch space in RAM (the host's /run); the root filesystem is read-only.
+    - source: /run/idea-setup-embedded
+      destination: /work
+      type: bind
+      options:
+        - bind
+        - rw
+depends:
+  - configuration: true
+  - network:
+      - addresses
+restart: untilSuccess
+logToConsole: true

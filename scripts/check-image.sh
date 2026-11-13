@@ -58,7 +58,7 @@ hits="$(
       -o -name '.credentials.json' -o -name 'kubeconfig' -o -name 'talosconfig' \) -type f 2>/dev/null
     find home root -mindepth 2 \( -path '*/.docker/config.json' -o -path '*/.aws/*' \
       -o -path '*/.config/gh/*' -o -path '*/.claude*' -o -path '*/.codex/*' \
-      -o -path '*/.config/google-chrome/*' -o -path '*/.kube/*' \) 2>/dev/null
+      -o -path '*/.config/google-chrome/*' -o -path '*/.config/chromium/*' -o -path '*/.kube/*' \) 2>/dev/null
     # .npmrc is fine as plain configuration (npm ships one); not with credentials.
     find . -xdev -name '.npmrc' -type f -exec grep -lE '_auth|_password|:username' {} + 2>/dev/null || true
   } | sort -u)"

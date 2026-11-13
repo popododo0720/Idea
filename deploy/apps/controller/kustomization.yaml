@@ -4,5 +4,5 @@ kind: Kustomization
 resources:
   - crd.yaml
   - rbac.yaml
-  - webhook-secret.yaml
+  - webhook-password.yaml
   - controller.yaml

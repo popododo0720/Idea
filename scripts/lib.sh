@@ -11,6 +11,11 @@ die() { echo "error: $*" >&2; exit 1; }
 log() { echo "==> $*" >&2; }
 
 export IDEA_SECRETS_DIR="${IDEA_SECRETS_DIR:-$HOME/.idea-secrets}"
+# The data dir is, in order: the environment, the choice saved by
+# `idea install --data-dir` (kept outside the repo), the default.
+if [ -z "${IDEA_DATA_DIR:-}" ] && [ -f "$IDEA_SECRETS_DIR/local.env" ]; then
+  IDEA_DATA_DIR="$(sed -n 's/^IDEA_DATA_DIR=//p' "$IDEA_SECRETS_DIR/local.env" | tail -n 1)"
+fi
 export IDEA_DATA_DIR="${IDEA_DATA_DIR:-/DATA/idea}"
 
 # Secrets and bulk data must never live inside the repo.
@@ -22,8 +27,10 @@ case "$(_abs "$IDEA_DATA_DIR")/" in
   "$REPO_ROOT"/*) die "IDEA_DATA_DIR points inside the repo: refusing to run" ;;
 esac
 
-export TALOSCONFIG="$IDEA_SECRETS_DIR/talos/talosconfig"
-export KUBECONFIG="$IDEA_SECRETS_DIR/kubeconfig"
+export TALOSCONFIG="${IDEA_TALOSCONFIG:-$IDEA_SECRETS_DIR/talos/talosconfig}"
+# IDEA_KUBECONFIG / IDEA_TALOSCONFIG point the scripts at another cluster (for
+# example the one installed from a test ISO).
+export KUBECONFIG="${IDEA_KUBECONFIG:-$IDEA_SECRETS_DIR/kubeconfig}"
 
 set -a
 # shellcheck disable=SC1091
@@ -35,7 +42,7 @@ set +a
 need() {
   local c
   for c in "$@"; do
-    command -v "$c" >/dev/null 2>&1 || die "missing command: $c (run scripts/host-setup.sh)"
+    command -v "$c" >/dev/null 2>&1 || die "missing command: $c (run ./idea install)"
   done
 }
 
@@ -73,7 +80,8 @@ collect_secret_values() {
       printf '%s\t%s\n' "env:$k" "$v" >> "$out"
     done < "$envf"
   fi
-  for y in talos/secrets.yaml talos/talosconfig kubeconfig; do
+  for y in talos/secrets.yaml talos/talosconfig kubeconfig \
+           iso/secrets.yaml iso/talosconfig iso/kubeconfig iso/talosconfig-generated; do
     f="$IDEA_SECRETS_DIR/$y"
     [ -f "$f" ] || continue
     yq -o=json '[.. | select(tag == "!!str") | {"k": (path | join(".")), "v": .}]' "$f" |

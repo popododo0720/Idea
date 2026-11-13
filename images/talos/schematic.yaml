@@ -1,6 +1,0 @@
-# Talos Image Factory schematic: stock Talos plus the Kata Containers extension.
-# Upload with scripts/vm-create.sh; the resulting ID is pinned in versions.env.
-customization:
-  systemExtensions:
-    officialExtensions:
-      - siderolabs/kata-containers

@@ -2,11 +2,17 @@
 # Build the Talos machine-config patch that plants Cilium, Flux and the root
 # source at first boot (KubeInlineManifestConfig documents).
 #
-# Output: _out/talos/bootstrap.yaml  (generated, not committed, no secrets)
+#   render-bootstrap.sh [dev|public]   which entry point the cluster follows
+#
+# Output: _out/talos/bootstrap.yaml (dev) or bootstrap-public.yaml
+#         (generated, not committed, no secrets)
 # Also refreshes deploy/bootstrap/flux/gotk-components.yaml for FLUX_VERSION.
 
 . "$(dirname "$0")/lib.sh"
 need helm flux yq
+
+CLUSTER="${1:-dev}"
+case "$CLUSTER" in dev|public) ;; *) die "usage: $0 [dev|public]" ;; esac
 
 OUT="$REPO_ROOT/_out/talos"
 mkdir -p "$OUT"
@@ -38,6 +44,7 @@ fi
 
 # ---- compose the patch
 patch="$OUT/bootstrap.yaml"
+[ "$CLUSTER" = dev ] || patch="$OUT/bootstrap-$CLUSTER.yaml"
 : > "$patch"
 add() { # add <name> <file>
   {
@@ -51,6 +58,6 @@ add() { # add <name> <file>
 }
 add idea-cilium "$OUT/cilium.yaml"
 add idea-flux   "$D/bootstrap/flux/gotk-components.yaml"
-add idea-root   "$D/clusters/dev/root.yaml"
+add idea-root   "$D/clusters/$CLUSTER/root.yaml"
 
 log "wrote $patch ($(du -h "$patch" | cut -f1))"

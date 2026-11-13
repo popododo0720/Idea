@@ -1,0 +1,6 @@
+# Standing main agent pod for trying delegation by hand (and the place
+# scripts/forgejo-api.sh runs its requests from).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - main.yaml
