@@ -8,8 +8,10 @@
 //
 // - Only signed-in callers of this dsh get through (`connection`, the same
 //   check dsh's own routes use).
-// - Only `llm-pi-ai/<provider>` records are accepted; nothing else in the
-//   store can be written through this route.
+// - Only `llm-pi-ai/<provider>` records and the DeepSeek account sign-in
+//   (`deepseek-account-platform/default`, a grant holding one long-lived
+//   account token, no refresh) are accepted; nothing else in the store can be
+//   written through this route.
 // - A grant whose access token expires later than the incoming one is kept:
 //   this dsh may have refreshed it since, and an older copy from the owner's
 //   dsh would only undo that.
@@ -104,7 +106,7 @@ async function writeJsonFile(path: string, value: unknown) {
   }
 }
 const MAX_BODY = 256 * 1024
-const KEY = /^llm-pi-ai\/[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+const KEY = /^llm-pi-ai\/[A-Za-z0-9][A-Za-z0-9._-]{0,63}$|^deepseek-account-platform\/default$/
 
 type Rec = { kind: 'grant', payload: unknown } | { kind: 'api-key', key?: string, env?: Record<string, string> }
 
@@ -155,7 +157,10 @@ export function apply(ctx: any) {
     const records = body && typeof body.records === 'object' && body.records !== null ? body.records : undefined
     if (!records) { send(res, 400, { error: 'records missing' }); return }
     const entries = Object.entries(records)
-    if (entries.some(([k, r]) => !KEY.test(k) || !valid(r))) { send(res, 400, { error: 'only llm-pi-ai records are accepted' }); return }
+    if (entries.some(([k, r]) => !KEY.test(k) || !valid(r)
+      || (k.startsWith('deepseek-account-platform/') && (r as Rec).kind !== 'grant'))) {
+      send(res, 400, { error: 'only llm-pi-ai records and the DeepSeek account sign-in are accepted' }); return
+    }
     let written = 0, kept = 0
     for (const [key, rec] of entries) {
       await ctx.credentials.modifyRecord(key, async (current: unknown) => {

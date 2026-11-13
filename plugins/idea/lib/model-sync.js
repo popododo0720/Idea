@@ -12,7 +12,10 @@
 //     when this dsh has a value for them,
 //   - the subscription sign-ins (Claude, ChatGPT, Copilot and the other pi-ai
 //     providers, e.g. from the dsh-subscription-login console): the
-//     credential records under the `llm-pi-ai` scope.
+//     credential records under the `llm-pi-ai` scope,
+//   - the DeepSeek account sign-in (`deepseek-account-platform/default`: one
+//     long-lived account token, never refreshed), so the machine uses the
+//     same DeepSeek account without an API key.
 //
 // It only adds and overwrites: nothing set on the machine itself is removed.
 //
@@ -32,6 +35,8 @@ const ALWAYS = ['DEEPSEEK_API_KEY']
 const DEBOUNCE_MS = 1500
 const REF = /^[A-Za-z_][A-Za-z0-9_]*$/
 const RECORD_SCOPE = 'llm-pi-ai/'
+const DEEPSEEK_ACCOUNT = 'deepseek-account-platform/default'
+const synced = key => key.startsWith(RECORD_SCOPE) || key === DEEPSEEK_ACCOUNT
 
 /** Every `apiKeyEnv` string anywhere in a settings value. */
 function keyRefs(value, out = new Set()) {
@@ -68,7 +73,7 @@ async function collect(ctx) {
   const records = {}
   for (const entry of await credentials.listRecords()) {
     const key = String(entry.key)
-    if (!key.startsWith(RECORD_SCOPE)) continue
+    if (!synced(key)) continue
     try {
       const rec = await credentials.readRecord(entry.key)
       if (rec) records[key] = rec
@@ -123,7 +128,7 @@ export function createModelSync({ ctx, rpc, json, paired }) {
 
   ctx.on('settings/document-updated', ns => { if (NAMESPACES.includes(ns)) schedule() })
   ctx.on('credentials/reference-updated', () => schedule())
-  ctx.on('credentials/record-updated', key => { if (String(key).startsWith(RECORD_SCOPE)) schedule() })
+  ctx.on('credentials/record-updated', key => { if (synced(String(key))) schedule() })
   ctx.effect(() => () => clearTimeout(timer), 'idea: model sync timer')
 
   return {
