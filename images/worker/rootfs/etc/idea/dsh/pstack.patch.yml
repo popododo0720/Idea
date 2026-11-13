@@ -1,0 +1,5 @@
+# Applied by idea-dsh only when dsh-pstack is installed in the profile:
+# new sessions of the agent dsh start in pstack's "Poteto mode" preset.
+- id: agent-preset-registry
+  config:
+    default: poteto-mode

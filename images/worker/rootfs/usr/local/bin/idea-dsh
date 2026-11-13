@@ -35,18 +35,31 @@ if [ -n "${DSH_TRUSTED_HOST:-}" ]; then
   trusted=(--trusted-host "$DSH_TRUSTED_HOST")
 fi
 
-# Subscription models (Claude, ChatGPT/Codex, Grok, Copilot, Antigravity):
-# the dsh-plugin-subscriptions plugin, the same one the owner signs in with on
-# their own dsh; the idea plugin there keeps the sign-ins in step with this
-# one. Installed into the profile at the pinned version (pnpm checks the
-# registry integrity); a failed install leaves dsh running without it.
-if [ -n "${IDEA_SUBSCRIPTIONS_PLUGIN_VERSION:-}" ] \
-  && ! grep -q "\"dsh-plugin-subscriptions\": \"${IDEA_SUBSCRIPTIONS_PLUGIN_VERSION}\"" \
-       "$DSH_HOME/profiles/web/package.json" 2>/dev/null; then
-  dsh plugin --profile web add --save-exact "dsh-plugin-subscriptions@${IDEA_SUBSCRIPTIONS_PLUGIN_VERSION}" \
-    || echo "idea-dsh: could not install dsh-plugin-subscriptions" >&2
+# Plugins from npm, installed into the profile (on the persistent volume) at
+# the version pinned in the image; pnpm checks the registry integrity. A failed
+# install leaves dsh running without that plugin.
+#   - dsh-plugin-subscriptions: subscription models (Claude, ChatGPT/Codex,
+#     Grok, Copilot, Antigravity), the same plugin the owner signs in with on
+#     their own dsh; the idea plugin there keeps the sign-ins in step.
+#   - dsh-pstack: skills, roles and the "Poteto mode" agent preset.
+installed() {
+  grep -q "\"$1\": \"$2\"" "$DSH_HOME/profiles/web/package.json" 2>/dev/null
+}
+ensure_plugin() {
+  [ -n "$2" ] || return 0
+  installed "$1" "$2" && return 0
+  dsh plugin --profile web add --save-exact "$1@$2" \
+    || echo "idea-dsh: could not install $1" >&2
+}
+ensure_plugin dsh-plugin-subscriptions "${IDEA_SUBSCRIPTIONS_PLUGIN_VERSION:-}"
+ensure_plugin dsh-pstack "${IDEA_PSTACK_PLUGIN_VERSION:-}"
+
+# Poteto mode is the default preset, but only when its plugin is there.
+patches=(--patch /etc/idea/dsh/web.patch.yml)
+if [ -n "${IDEA_PSTACK_PLUGIN_VERSION:-}" ] && installed dsh-pstack "$IDEA_PSTACK_PLUGIN_VERSION"; then
+  patches+=(--patch /etc/idea/dsh/pstack.patch.yml)
 fi
 
 cd "$STATE/projects"
-exec dsh --profile web --patch /etc/idea/dsh/web.patch.yml \
+exec dsh --profile web "${patches[@]}" \
   --no-open --host "$POD_IP" --port "${DSH_PORT:-4443}" "${trusted[@]}" "${tls[@]}"

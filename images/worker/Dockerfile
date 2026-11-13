@@ -77,6 +77,10 @@ COPY plugins/machine-sync/ /opt/idea/plugins/machine-sync/
 # the persistent volume) at start by idea-dsh, at this exact version.
 ARG SUBSCRIPTIONS_PLUGIN_VERSION
 ENV IDEA_SUBSCRIPTIONS_PLUGIN_VERSION=${SUBSCRIPTIONS_PLUGIN_VERSION}
+# dsh-pstack (skills, roles, "Poteto mode" as the default agent preset), the
+# same way.
+ARG PSTACK_PLUGIN_VERSION
+ENV IDEA_PSTACK_PLUGIN_VERSION=${PSTACK_PLUGIN_VERSION}
 RUN ln -s /opt/dsh/node_modules /opt/idea/plugins/node_modules
 
 USER 1000:1000
