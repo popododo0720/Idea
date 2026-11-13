@@ -1,32 +1,32 @@
-# 단계 5. dsh와 브라우저 조작
+# Stage 5. dsh and browser control
 
-날짜: 2026-11-12
-결과: **통과** (5a·5b 통과, 5c 조건부로 됨, 5d 됨, 훅 있음)
+Date: 2026-11-12
+Result: **pass** (5a and 5b pass, 5c works conditionally, 5d works, hooks exist)
 
-## 검증
+## Verification
 
-| 항목 | 결과 |
+| Item | Result |
 | --- | --- |
-| 5a. DeepSeek 키로 headless 실행 | 통과. 새 포드에서 별도 준비 없이 재현됨 |
-| 5b. 데스크톱 Chrome으로 페이지 열기·제목 읽기·스크린샷 저장 | 통과. 새 포드에서 재현됨 |
-| 5c. 리눅스 데스크톱 조작 플러그인이 XFCE에서 동작 | 조건부로 됨 (아래) |
-| 5d. Claude 구독 연결 | 됨. 위임 성공, 작업 포드 2개 동시 사용에서 충돌 없음 |
-| dsh 훅 API | 있음 (아래) |
-| API 키 Secret이 없어도 Flux의 Kustomization이 Ready | 통과. Secret을 지우고 포드를 다시 띄워도 포드와 6개 Kustomization 모두 정상 |
+| 5a. Headless run with the DeepSeek key | Pass. Reproduced in a fresh pod with no extra preparation |
+| 5b. Open a page, read the title, save a screenshot with the desktop Chrome | Pass. Reproduced in a fresh pod |
+| 5c. Linux desktop control plugin works on XFCE | Works conditionally (below) |
+| 5d. Claude subscription | Works. Delegation succeeded, no conflict with 2 worker pods in use at once |
+| dsh hook API | Exists (below) |
+| Flux Kustomizations Ready without the API key Secret | Pass. With the Secret deleted and the pod restarted, the pod and all 6 Kustomizations are fine |
 
-## 실제로 한 것
+## What was actually done
 
-### dsh 설치 (이미지 0.3.0)
+### dsh install (image 0.3.0)
 
-- 공식 저장소 README의 설치 방법은 `npx @deepseek-ai/dsh web` 하나뿐이다. 버전 고정 설치 방법은 문서에 없어서, npm 패키지 `@deepseek-ai/dsh@0.2.2-rc.1`을 잠금 파일(`images/worker/dsh/package-lock.json`)로 고정하고 `npm ci`로 설치했다.
-- `dsh plugin`이 pnpm을 쓰므로 `pnpm@11.28.5`(dsh 저장소가 고정한 버전)를 같은 잠금 파일에 넣었다.
-- dsh의 리눅스 도구 샌드박스가 쓰는 `bubblewrap`을 apt로 넣었다.
-- 프로파일은 이미지 빌드 때 만들어 둔다. 포드가 뜬 뒤 설치 단계가 없다.
+- The only install method in the official repository README is `npx @deepseek-ai/dsh web`. There is no documented way to install a pinned version, so the npm package `@deepseek-ai/dsh@0.2.2-rc.1` was pinned with a lock file (`images/worker/dsh/package-lock.json`) and installed with `npm ci`.
+- `dsh plugin` uses pnpm, so `pnpm@11.28.5` (the version pinned by the dsh repository) is in the same lock file.
+- `bubblewrap`, used by the dsh Linux tool sandbox, was added with apt.
+- Profiles are created at image build time. There is no install step after the pod starts.
 
-| 프로파일 | 내용 |
+| Profile | Content |
 | --- | --- |
-| `headless` | 한 번에 과제 하나(`dsh headless "<과제>"`) + 브라우저 조작 + Claude Code 서브에이전트 |
-| `desk` | `headless` + 데스크톱 조작 |
+| `headless` | One task at a time (`dsh headless "<task>"`) + browser control + Claude Code subagent |
+| `desk` | `headless` + desktop control |
 
 ### 5a. headless
 
@@ -34,89 +34,89 @@
 dsh headless --approval-policy never "Reply with exactly the single word: pong"
 ```
 
-- 답 `pong`, 종료 코드 0. 첫 실행 약 24초(프로파일 준비 포함).
-- 키는 `scripts/apply-secrets.sh`가 만든 Secret `idea-model-keys`를 포드 환경 변수 `DEEPSEEK_API_KEY`로 참조한다(`optional: true`).
-- 셸 도구도 기본 샌드박스(`workspace-write`, bubblewrap)에서 동작했다. Kata 게스트 안에서 비루트로 된다.
-- `--json`을 주면 `tool_call`, `tool_result`, `final` 이벤트가 한 줄씩 나온다. 완료 판정은 종료 코드 0과 `final.reason.kind == "completed"` 둘 다 봐야 한다.
+- Answer `pong`, exit code 0. First run about 24 seconds (including profile preparation).
+- The key comes from the Secret `idea-model-keys` created by `scripts/apply-secrets.sh`, referenced as the pod environment variable `DEEPSEEK_API_KEY` (`optional: true`).
+- The shell tool also worked in the default sandbox (`workspace-write`, bubblewrap). It works as non-root inside the Kata guest.
+- With `--json`, `tool_call`, `tool_result` and `final` events come out one per line. Completion must be judged on both exit code 0 and `final.reason.kind == "completed"`.
 
-### 5b. 브라우저 조작
+### 5b. Browser control
 
-- 플러그인: 저장소 안의 공식 제공자 `@deepseek-ai/dsh-browser-use` + `@deepseek-ai/dsh-experimental-browser-use-chrome-devtools-mcp`(구글의 `chrome-devtools-mcp@1.9.0`을 고정해서 띄운다).
-- 설정: `mode: launch`, `headless: false`, `executablePath: /usr/bin/google-chrome`. Chrome이 데스크톱(`DISPLAY=:1`)에 창으로 뜬다. `--no-sandbox`는 쓰지 않는다.
-- 결과: `new_page` → `evaluate_script`(`document.title` = "Example Domain") → `take_screenshot`(PNG 75KB 저장).
-- 스크린샷 파일은 `/tmp` 아래에만 저장된다. 작업 디렉터리로 저장하려 하면 MCP 서버가 "workspace roots 밖"이라고 거부해서, 에이전트가 `/tmp`에 저장한 뒤 복사했다.
+- Plugins: the official providers in the repository, `@deepseek-ai/dsh-browser-use` + `@deepseek-ai/dsh-experimental-browser-use-chrome-devtools-mcp` (runs Google's `chrome-devtools-mcp@1.9.0`, pinned).
+- Settings: `mode: launch`, `headless: false`, `executablePath: /usr/bin/google-chrome`. Chrome opens as a window on the desktop (`DISPLAY=:1`). `--no-sandbox` is not used.
+- Result: `new_page` → `evaluate_script` (`document.title` = "Example Domain") → `take_screenshot` (PNG, 75KB saved).
+- Screenshot files are only saved under `/tmp`. Saving to the working directory is refused by the MCP server as "outside workspace roots", so the agent saved to `/tmp` and copied.
 
-### 5c. 데스크톱 조작
+### 5c. Desktop control
 
-- 플러그인: 공식 제공자 `@deepseek-ai/dsh-computer-use` + `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native`(`@trycua/cua-driver` 0.28.0 내장).
-- **된 것**: 앱·창 목록 읽기, 앱 실행(`launch_app`), 클릭, 글자 입력, 키 입력. 셸 도구 없이 "터미널을 띄워 명령을 치고 Enter"를 시켰고 파일이 실제로 만들어졌다.
-- **조건**:
-  - Enter 같은 키 입력은 백그라운드 전달이 안 돼서 포그라운드(XTest) 전달로 다시 시도해야 했다.
-  - 창 안의 요소가 보이지 않는다(`elements=1`). 접근성 버스(AT-SPI)가 이미지에 없어서 창 제목과 좌표만으로 조작한다.
-  - 스크린샷은 이미지 입력이 되는 모델 경로에서만 모델에게 전달된다. 지금 DeepSeek 경로에서는 화면을 보지 못하고 좌표를 추측한다.
-- 업스트림 문서는 실제 Xorg를 "아직 검증 안 됨"으로 적고 있고 XFCE는 언급이 없다. Xvnc + XFCE에서 위 범위는 동작했다.
+- Plugins: the official providers `@deepseek-ai/dsh-computer-use` + `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native` (bundles `@trycua/cua-driver` 0.28.0).
+- **Worked**: listing apps and windows, launching an app (`launch_app`), clicking, typing text, key presses. Without a shell tool it was told to "open a terminal, type a command and press Enter", and the file was actually created.
+- **Conditions**:
+  - Key presses such as Enter are not delivered in the background and had to be retried with foreground (XTest) delivery.
+  - Elements inside windows are not visible (`elements=1`). The accessibility bus (AT-SPI) is not in the image, so control is by window title and coordinates only.
+  - Screenshots only reach the model on a model path with image input. On the current DeepSeek path it cannot see the screen and guesses coordinates.
+- The upstream docs list real Xorg as "not yet verified" and do not mention XFCE. On Xvnc + XFCE the scope above worked.
 
-### 훅 API
+### Hook API
 
-있다. 도구 호출 전후를 가로채는 Cordis 이벤트가 `packages/core/tools/src/events.ts`에 정의돼 있다.
+Exists. Cordis events that intercept tool calls before and after are defined in `packages/core/tools/src/events.ts`.
 
-| 이벤트 | 역할 |
+| Event | Role |
 | --- | --- |
-| `tools/pre-execute` | 실행 전 허용·거부·취소·질문 |
-| `tools/execute` | 실행을 감싼다(시간 제한, 재시도, 계측) |
-| `tools/post-execute` | 결과 수락·교체·보강·차단 |
-| `tools/result` | 확정된 결과 관찰 |
+| `tools/pre-execute` | Allow, deny, cancel or ask before execution |
+| `tools/execute` | Wraps execution (timeout, retry, instrumentation) |
+| `tools/post-execute` | Accept, replace, enrich or block the result |
+| `tools/result` | Observe the final result |
 
-- 에이전트 단위 이벤트도 있다: `agent/created`, `agent/pre-step`, `agent/turn-stopping`.
-- Claude Code의 `hooks.json`을 그대로 돌리는 공식 패키지(`@deepseek-ai/dsh-hooks-claude-code`, 실험적)가 있다.
+- There are agent-level events too: `agent/created`, `agent/pre-step`, `agent/turn-stopping`.
+- An official package runs Claude Code's `hooks.json` as is (`@deepseek-ai/dsh-hooks-claude-code`, experimental).
 
-### 5d. Claude 구독
+### 5d. Claude subscription
 
-- 쓸 플러그인: 공식 번들 `@deepseek-ai/dsh-subagent-claude-code`. 공식 Claude Agent SDK로 Claude Code를 구동하고, 로그인 상태를 만들거나 바꾸지 않는다. 도구 이름은 `subagent_claude_code`.
-- **쓰지 않는 것**: dsh 기본 번들의 `llm-pi-ai`에 든 Anthropic OAuth 로그인. 소스가 Claude Code의 클라이언트 ID와 `user-agent: claude-cli/…` 헤더를 흉내 낸다(계획이 금지한 방식). headless 프로파일은 이 로그인 경로(저장된 자격 증명)를 기본으로 꺼 둔다. 같은 방식의 커뮤니티 플러그인 2개도 쓰지 않는다.
-- 주입 경로: 사람이 `claude setup-token`으로 만든 토큰 → `~/.idea-secrets/env`의 `CLAUDE_CODE_OAUTH_TOKEN` → `apply-secrets.sh` → Secret → 포드 환경 변수 → 프로파일 패치가 서브에이전트의 `env`로 넘긴다(이 제공자는 자격 증명처럼 생긴 환경 변수를 자식 프로세스에서 지우므로 명시적으로 넘겨야 한다).
-- 로그인은 사람이 호스트에서 `claude setup-token`으로 했다. 토큰은 채팅이나 레포를 거치지 않고 `~/.idea-secrets/env`에만 들어갔다.
-- 결과: `dsh headless`에 "Claude Code 서브에이전트에게 맡기라"고 시키면 `subagent_claude_code` 도구가 호출되고, Claude의 답("391; I'm Claude (Sonnet).")이 돌아왔다.
-- **동시 사용**: 작업 포드 2개에서 같은 토큰으로 위임을 3번씩 동시에 돌렸고 6번 모두 성공했다. `setup-token`의 토큰은 갱신 없이 쓰는 장기 토큰이라, 포드끼리 갱신 토큰을 서로 무효로 만드는 문제가 생기지 않는다(로그인 파일 `~/.claude/.credentials.json`을 여러 포드가 나눠 쓰는 방식이었다면 생길 수 있는 문제다).
-- 위임은 한 번에 과제 하나이고 이어 하기가 없다. 서브에이전트의 권한 모드 기본값은 `dontAsk`(이미 허용되지 않은 동작은 거부)다.
+- Plugin to use: the official bundle `@deepseek-ai/dsh-subagent-claude-code`. It drives Claude Code through the official Claude Agent SDK and neither creates nor changes login state. The tool name is `subagent_claude_code`.
+- **Not used**: the Anthropic OAuth login in `llm-pi-ai` from the dsh default bundle. Its source mimics Claude Code's client ID and the `user-agent: claude-cli/…` header (the method the plan forbids). The headless profile turns this login path (stored credentials) off by default. Two community plugins using the same method are not used either.
+- Injection path: a token the owner creates with `claude setup-token` → `CLAUDE_CODE_OAUTH_TOKEN` in `~/.idea-secrets/env` → `apply-secrets.sh` → Secret → pod environment variable → the profile patch passes it to the subagent's `env` (this provider strips credential-looking environment variables from child processes, so it must be passed explicitly).
+- Login was done by the owner on the host with `claude setup-token`. The token went only into `~/.idea-secrets/env`, never through chat or the repository.
+- Result: telling `dsh headless` to "delegate to the Claude Code subagent" called the `subagent_claude_code` tool and Claude's answer ("391; I'm Claude (Sonnet).") came back.
+- **Concurrent use**: 3 delegations at once from each of 2 worker pods with the same token; all 6 succeeded. The `setup-token` token is a long-lived token used without refresh, so pods do not invalidate each other's refresh tokens (which could happen if several pods shared the login file `~/.claude/.credentials.json`).
+- Delegation is one task at a time with no continuation. The subagent's default permission mode is `dontAsk` (anything not already allowed is denied).
 
-## 버전
+## Versions
 
-| 구성 | 버전 |
+| Component | Version |
 | --- | --- |
-| 작업 이미지 | 0.3.0 (2.72GB) |
-| dsh | 0.2.2-rc.1 (태그 `dsh-v0.2.2-rc.1`, 커밋 `66491b05`) |
+| Worker image | 0.3.0 (2.72GB) |
+| dsh | 0.2.2-rc.1 (tag `dsh-v0.2.2-rc.1`, commit `66491b05`) |
 | pnpm | 11.28.5 |
-| 브라우저·데스크톱·Claude 서브에이전트 플러그인 | 0.2.2-rc.1 (dsh와 같은 버전) |
-| chrome-devtools-mcp | 1.9.0 (제공자가 고정) |
-| cua-driver | 0.28.0 (제공자가 고정) |
-| claude-agent-sdk | 0.3.263 (제공자가 고정) |
+| Browser, desktop and Claude subagent plugins | 0.2.2-rc.1 (same version as dsh) |
+| chrome-devtools-mcp | 1.9.0 (pinned by the provider) |
+| cua-driver | 0.28.0 (pinned by the provider) |
+| claude-agent-sdk | 0.3.263 (pinned by the provider) |
 
-## 메모리 실측
+## Measured memory
 
-| 대상 | 값 |
+| Target | Value |
 | --- | --- |
-| 노드 사용 메모리 (작업 포드 1개, dsh 실행 후 유휴) | 약 2.4GB / 16GB, 가용 12.9GB |
-| 호스트 가용 메모리 | 15GB |
+| Node memory used (1 worker pod, idle after a dsh run) | about 2.4GB / 16GB, 12.9GB available |
+| Host available memory | 15GB |
 
-## 계획과 다르게 한 것
+## Deviations from the plan
 
-- **브라우저 플러그인 선택.** 계획은 "리눅스+Chrome을 명시한 것부터"였다. 그렇게 명시한 것은 커뮤니티 플러그인(`dsh-ego-browser` 등)뿐이고, 검토되지 않은 제3자 코드이며 `--no-sandbox` 래퍼를 쓰는 것도 있다. 공식 제공자가 리눅스에서 그대로 동작해서 그쪽을 썼다.
-- **세션 로그 업로드를 껐다.** dsh는 공식 DeepSeek API를 쓸 때 세션 로그(작업 중인 코드 포함)를 요청과 함께 올리는 것이 기본값이다. 홈 패치에서 `session-log-deepseek`의 `enabled: false`로 껐다. 텔레메트리도 `DSH_TELEMETRY_MODE=DISABLED`로 껐다.
+- **Browser plugin choice.** The plan said "start with ones that explicitly name Linux+Chrome". The only ones that do are community plugins (`dsh-ego-browser` and so on): unreviewed third-party code, some with a `--no-sandbox` wrapper. The official provider works on Linux as is, so it was used.
+- **Session log upload turned off.** When dsh uses the official DeepSeek API, it uploads session logs (including the code being worked on) with requests by default. Turned off with `enabled: false` for `session-log-deepseek` in the home patch. Telemetry was turned off too with `DSH_TELEMETRY_MODE=DISABLED`.
 
-## 막힌 점과 해결
+## Problems and fixes
 
-- **npm이 설치 스크립트를 막는다.** Node 26의 npm은 의존 패키지의 install 스크립트를 기본으로 실행하지 않는다(`node-pty`, `koffi` 등 5개). 미리 빌드된 바이너리가 들어 있어서 dsh는 그대로 동작했다.
-- **이미지 검사 오탐.** 플러그인 패키지 안의 공개 API 키·예시 토큰이 gitleaks에 잡혔다. 패턴 검사에서 제3자 패키지 트리(`node_modules`, pnpm 저장소)를 빼는 설정(`scripts/gitleaks-image.toml`)을 뒀다. 실제 값 대조와 키 파일 검사는 여전히 파일시스템 전체를 본다.
-- **프로파일 패치 파일.** 기본으로 `[]`가 들어 있어서 뒤에 덧붙이면 깨진다. 파일 전체를 쓰도록 했다.
+- **npm blocks install scripts.** npm in Node 26 does not run dependency install scripts by default (5 packages such as `node-pty`, `koffi`). They ship prebuilt binaries, so dsh worked anyway.
+- **False positives in the image check.** Public API keys and example tokens inside the plugin packages were flagged by gitleaks. A configuration (`scripts/gitleaks-image.toml`) excludes third-party package trees (`node_modules`, the pnpm store) from the pattern check. The real-value comparison and key-file checks still cover the whole filesystem.
+- **Profile patch file.** It contains `[]` by default, so appending breaks it. The whole file is written instead.
 
-## 설계에 반영할 점
+## Points for the design
 
-- **dsh는 "개발자 미리보기"이고 호환성이 깨질 수 있다고 명시한다.** 버전을 잠금 파일로 고정한 것은 필수다. `SAFETY.md`는 dsh의 샌드박스만 믿지 말고 일회용 VM에서 돌리라고 한다. 작업을 Kata VM에 넣는 지금 구조와 맞다.
-- **컨트롤러가 일을 맡기는 인터페이스는 `dsh headless --json`이면 된다.** 포트를 열지 않고, 과제 하나를 받아 이벤트를 흘리고 종료 코드로 끝난다. 이어 하기는 `--session-id`.
-- **승인이 필요한 도구 호출은 headless에서 거부된다**(`--approval-policy never`). 작업 VM 안에서는 권한 모드를 넓히는 것(`DSH_PERMISSION_MODE`)을 단계 6에서 정해야 한다. VM이 격리 경계이므로 넓혀도 되는지 판단이 필요하다.
-- **화면을 보는 조작은 이미지 입력 모델이 있어야 쓸모가 있다.** 데스크톱 조작을 실제로 쓰려면 이미지 입력 경로와 AT-SPI를 이미지에 넣는 것을 검토한다.
-- **dsh-yawn은 dsh 저장소의 일부가 아니라 제3자 배포판이다.** 쿠버네티스에서는 agent-sandbox CRD로 샌드박스를 만들고, 러너 포드는 권한 상승 허용과 특권 사이드카를 기본으로 쓴다. Kata는 언급이 없다. 단계 6의 비교에서 이 점을 본다.
-- **구독 토큰을 자동화에 쓰는 것의 약관 적합성은 확인하지 않았다.** 한 사람이 자기 계정으로 쓰는 범위에서 시험했다. 공개 배포판에서 사용자에게 구독 로그인을 쓰게 할지는 따로 확인하고, 기본 경로는 API 키로 두는 편이 안전하다.
-- dsh 저장소에 SSH 원격 실행 패키지(`dsh-ssh`, `dsh-subprocess-ssh` 등)가 따로 있다. 단계 6의 "직접 짠 SSH 플러그인" 대신 쓸 수 있는지 먼저 확인한다.
-- 이미지가 2.72GB로 커졌다(dsh와 플러그인이 약 1.1GB). 첫 pull 시간이 늘어난다.
+- **dsh states it is a "developer preview" and that compatibility may break.** Pinning the version with a lock file is a must. `SAFETY.md` says not to trust the dsh sandbox alone and to run in a disposable VM. That matches the current layout of running work inside Kata VMs.
+- **`dsh headless --json` is enough as the interface for the controller to hand off work.** It opens no port, takes one task, streams events and ends with an exit code. Continuation is `--session-id`.
+- **Tool calls that need approval are denied in headless** (`--approval-policy never`). Widening the permission mode inside the worker VM (`DSH_PERMISSION_MODE`) must be decided in stage 6. Since the VM is the isolation boundary, it needs a judgement on whether widening is acceptable.
+- **Screen-based control is only useful with an image-input model.** To really use desktop control, look at adding an image-input path and AT-SPI to the image.
+- **dsh-yawn is not part of the dsh repository but a third-party distribution.** On Kubernetes it creates sandboxes with the agent-sandbox CRD, and its runner pods use privilege escalation and a privileged sidecar by default. Kata is not mentioned. This is examined in the stage 6 comparison.
+- **Whether using a subscription token for automation is within the terms was not checked.** Tested within the scope of one person using their own account. Whether a public distribution should let users use a subscription login needs separate confirmation; keeping the API key as the default path is safer.
+- The dsh repository has separate SSH remote execution packages (`dsh-ssh`, `dsh-subprocess-ssh` and so on). Check first whether they can replace the "hand-written SSH plugin" of stage 6.
+- The image grew to 2.72GB (dsh and plugins about 1.1GB). First pull takes longer.

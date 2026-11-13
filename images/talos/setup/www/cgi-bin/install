@@ -10,10 +10,10 @@ W=/work
 esc() { sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'; }
 known() { while read -r dev _; do [ "$dev" = "$1" ] && return 0; done < "$W/disks"; return 1; }
 badge() { # used
-  if [ "$1" = 1 ]; then echo '<span class="badge badge-warn">데이터 있음</span>'; else echo '<span class="badge">비어 있음</span>'; fi
+  if [ "$1" = 1 ]; then echo '<span class="badge badge-warn">has data</span>'; else echo '<span class="badge">empty</span>'; fi
 }
 plain() { # dev size used model
-  if [ "$3" = 1 ]; then s='데이터 있음'; else s='비어 있음'; fi
+  if [ "$3" = 1 ]; then s='has data'; else s='empty'; fi
   printf '%s · %s GB · %s%s' "$1" "$2" "$s" "${4:+ · $(echo "$4" | esc)}"
 }
 
@@ -21,9 +21,9 @@ head_html() {
   printf 'Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\n\r\n'
   cat <<'HTML'
 <!doctype html>
-<html lang="ko"><head><meta charset="utf-8">
+<html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>idea 설치</title>
+<title>idea install</title>
 <link rel="stylesheet" href="/design/idea.css">
 </head><body>
 <main class="page-narrow" style="max-width:520px">
@@ -35,11 +35,11 @@ foot_html() { echo '</main></body></html>'; }
 form() { # form [error]
   head_html
   echo '<div class="stack">'
-  echo '<div class="stack-sm"><h1>설치할 디스크 선택</h1>'
-  echo '<p class="muted">고른 디스크는 통째로 지워지고 시스템이 설치됩니다.</p></div>'
+  echo '<div class="stack-sm"><h1>Choose the install disk</h1>'
+  echo '<p class="muted">The chosen disk is wiped entirely and the system is installed on it.</p></div>'
   [ -z "${1:-}" ] || echo "<div class=\"alert alert-bad\"><div>$1</div></div>"
   echo '<form class="stack" method="post" action="/cgi-bin/install">'
-  echo '<fieldset style="border:0;margin:0;padding:0"><legend class="label">디스크</legend>'
+  echo '<fieldset style="border:0;margin:0;padding:0"><legend class="label">Disk</legend>'
   while read -r dev size used model; do
     echo "<label class=\"choice\"><input type=\"radio\" name=\"disk\" value=\"$dev\" required>"
     echo "<span class=\"choice-body\"><span class=\"radio-dot\"></span><span class=\"grow\">"
@@ -49,35 +49,35 @@ form() { # form [error]
   done < "$W/disks"
   echo '</fieldset>'
   if [ "$(grep -c . "$W/disks")" -gt 1 ]; then
-    echo '<div class="field"><label class="label" for="data">데이터를 둘 디스크</label>'
-    echo '<select class="select" id="data" name="data"><option value="">설치할 디스크에 같이 둠</option>'
+    echo '<div class="field"><label class="label" for="data">Disk for data</label>'
+    echo '<select class="select" id="data" name="data"><option value="">Keep it on the install disk</option>'
     while read -r dev size used model; do
       echo "<option value=\"$dev\">$(plain "$dev" "$size" "$used" "$model")</option>"
     done < "$W/disks"
-    echo '</select><p class="hint">저장소와 데이터베이스가 놓이는 곳입니다. 따로 고르면 그 디스크도 지워집니다.</p></div>'
+    echo '</select><p class="hint">Where the storage and the database live. If you pick a separate disk, that disk is wiped too.</p></div>'
   fi
-  echo '<div class="field"><label class="label" for="host">접속 이름</label>'
+  echo '<div class="field"><label class="label" for="host">Access name</label>'
   echo '<input class="input mono" id="host" name="host" placeholder="idea.internal" autocomplete="off" autocapitalize="off" spellcheck="false">'
-  echo '<p class="hint">이 기기를 부를 도메인 이름입니다(예: idea.example.lan). 비워 두면 idea.internal. DNS나 hosts 파일에서 이 이름을 기기 주소로 연결하세요.</p></div>'
+  echo '<p class="hint">The domain name this machine is reached by (for example idea.example.lan). Leave it empty for idea.internal. Point this name at the machine address in DNS or in a hosts file.</p></div>'
   echo '<label class="row small" style="align-items:flex-start;gap:10px;cursor:pointer">'
   echo '<input type="checkbox" name="confirm" value="yes" required style="margin-top:3px">'
-  echo '<span>고른 디스크의 내용이 모두 지워지는 것을 확인했습니다. 되돌릴 수 없습니다.</span></label>'
-  echo '<button class="btn btn-primary btn-block" type="submit">지우고 설치</button>'
+  echo '<span>I understand that everything on the chosen disks is erased. This cannot be undone.</span></label>'
+  echo '<button class="btn btn-primary btn-block" type="submit">Erase and install</button>'
   echo '</form></div>'
   foot_html
 }
 
 started() {
   head_html
-  echo '<div class="stack"><div class="stack-sm"><h1>설치를 시작했습니다</h1>'
-  echo "<p class=\"muted\"><span class=\"mono\">$(sed -n 1p "$W/choice")</span> 에 설치하고 다시 시작합니다.</p></div>"
-  echo '<div class="alert"><div>10분쯤 뒤 기기 화면에 설정 화면 주소와 설정 코드가 나옵니다. 이 페이지는 더 쓰이지 않습니다.</div></div></div>'
+  echo '<div class="stack"><div class="stack-sm"><h1>Install started</h1>'
+  echo "<p class=\"muted\">Installing to <span class=\"mono\">$(sed -n 1p "$W/choice")</span> and restarting.</p></div>"
+  echo '<div class="alert"><div>In about 10 minutes the machine screen shows the setup page address and the setup code. This page is no longer used.</div></div></div>'
   foot_html
 }
 
 waiting() {
   head_html
-  echo '<div class="stack-sm"><h1>준비 중입니다</h1><p class="muted">디스크를 찾고 있습니다. 잠시 뒤 새로 고치세요.</p></div>'
+  echo '<div class="stack-sm"><h1>Getting ready</h1><p class="muted">Looking for disks. Refresh in a moment.</p></div>'
   foot_html
 }
 
@@ -93,13 +93,13 @@ field() { echo "$body" | tr '&' '\n' | sed -n "s/^$1=//p" | head -n 1 | sed 's/%
 disk="$(field disk)"; data="$(field data)"; confirm="$(field confirm)"
 host="$(field host | tr 'A-Z' 'a-z')"
 
-known "$disk" || { form '설치할 디스크를 고르세요.'; exit 0; }
-[ -z "$data" ] || known "$data" || { form '데이터 디스크가 올바르지 않습니다.'; exit 0; }
+known "$disk" || { form 'Choose the disk to install to.'; exit 0; }
+[ -z "$data" ] || known "$data" || { form 'The data disk is not valid.'; exit 0; }
 [ "$data" != "$disk" ] || data=""
-[ "$confirm" = yes ] || { form '지워지는 것을 확인해야 설치합니다.'; exit 0; }
+[ "$confirm" = yes ] || { form 'Confirm that the disks will be erased before installing.'; exit 0; }
 if [ -n "$host" ]; then
   [ "${#host}" -le 253 ] && echo "$host" | grep -Eq '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$' \
-    || { form '접속 이름이 올바른 도메인 이름이 아닙니다(예: idea.example.lan).'; exit 0; }
+    || { form 'The access name is not a valid domain name (for example idea.example.lan).'; exit 0; }
 fi
 
 printf '%s\n%s\n%s\n' "$disk" "$data" "$host" > "$W/choice.tmp" && mv "$W/choice.tmp" "$W/choice"

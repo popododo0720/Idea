@@ -58,7 +58,7 @@ page() { curl -sk -m 20 "$@"; }
 wait_for 2700 "setup page answers at $url" page -o /dev/null -f "$url"
 
 # A wrong code must not open the page.
-page --data-urlencode "code=wrong-code-0000" "$url" | grep -c '맞지 않습니다' >/dev/null \
+page --data-urlencode "code=wrong-code-0000" "$url" | grep -c 'Wrong setup code' >/dev/null \
   || die "the setup page accepted a wrong code"
 mark "wrong setup code rejected"
 
@@ -69,7 +69,7 @@ sed -n 's/^CLAUDE_CODE_OAUTH_TOKEN=//p' "$envf" | tr -d '\n' > "$T/claude"
 [ -s "$T/deepseek" ] || die "$envf has no DEEPSEEK_API_KEY"
 page --data-urlencode "code@$T/code" --data-urlencode "deepseek@$T/deepseek" \
      --data-urlencode "claude@$T/claude" "${url}keys" > "$T/page.html"
-grep -q '저장했습니다' "$T/page.html" || die "the setup page did not save the keys"
+grep -q 'Saved' "$T/page.html" || die "the setup page did not save the keys"
 mark "model keys entered on the setup page"
 
 # The account the page shows.
@@ -80,7 +80,7 @@ page = open(os.path.join(t, "page.html"), encoding="utf-8").read()
 def field(label):
     m = re.search(r"<dt>%s</dt><dd class=\"mono\">(.*?)</dd>" % label, page, re.S)
     return html.unescape(m.group(1)) if m else ""
-user, password = field("계정"), field("비밀번호")
+user, password = field("Account"), field("Password")
 if not user or not password:
     sys.exit("no account on the setup page")
 with open(os.open(os.path.join(t, "curlrc"), os.O_WRONLY | os.O_CREAT, 0o600), "w") as f:

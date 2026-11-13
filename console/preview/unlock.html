@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>idea · 설정 코드</title>
+<title>idea · Setup code</title>
 <link rel="stylesheet" href="../design/idea.css">
 </head>
 <body>
@@ -12,20 +12,20 @@
 
   <div class="stack">
     <div class="stack-sm">
-      <h1>설정 코드 입력</h1>
-      <p class="muted">기기 콘솔 화면에 표시된 12자리 코드를 입력하세요. 코드는 10분마다 다시 표시됩니다.</p>
+      <h1>Enter the setup code</h1>
+      <p class="muted">Enter the 12-character code shown on the machine console. The code is shown again every 10 minutes.</p>
     </div>
 
     <form class="stack" method="post" action="/">
       <div class="field">
-        <label class="label" for="code">설정 코드</label>
+        <label class="label" for="code">Setup code</label>
         <input class="input code-input" id="code" name="code" placeholder="xxxx-xxxx-xxxx"
                autocomplete="one-time-code" autocapitalize="off" spellcheck="false" autofocus required>
       </div>
-      <button class="btn btn-primary btn-block" type="submit">계속</button>
+      <button class="btn btn-primary btn-block" type="submit">Continue</button>
     </form>
 
-    <p class="xs subtle">콘솔에서 <code>setup code</code> 줄을 찾으세요. Talos 화면에서 <kbd>/</kbd>를 누르면 로그를 걸러 볼 수 있습니다.</p>
+    <p class="xs subtle">Look for the <code>setup code</code> line on the console. On the Talos screen, press <kbd>/</kbd> to filter the log.</p>
   </div>
 </main>
 </body>

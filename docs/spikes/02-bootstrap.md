@@ -1,113 +1,113 @@
-# 단계 2. 부트스트랩: Cilium과 Flux를 Talos가 심는다
+# Stage 2. Bootstrap: Talos seeds Cilium and Flux
 
-날짜: 2026-11-12
-결과: **통과** (인그레스 접속 방식에 계획과 다른 점 1건, 아래 참고)
+Date: 2026-11-12
+Result: **pass** (one deviation from the plan in how the ingress is reached, see below)
 
-## 검증
+## Verification
 
-| 항목 | 결과 |
+| Item | Result |
 | --- | --- |
-| `vm-destroy.sh` → `vm-create.sh` → `talos-apply.sh`만으로 노드 Ready, Kustomization 전부 Ready | 통과. 추가 명령 없음 |
-| 호스트에서 HTTPS로 `/test/`가 200 | 통과. 단, 노드 IP가 아니라 **호스트 이름**(`idea.internal`)으로 접속해야 한다 |
-| 시험용 Deployment를 `kubectl delete` 하면 Flux가 다시 만든다 | 통과. 608초 뒤 복구(리컨사일 주기 10분) |
-| `deploy/`에서 nginx를 빼고 push 하면 클러스터에서도 사라진다 | 통과. 네임스페이스까지 삭제됨 |
+| Node Ready and all Kustomizations Ready with only `vm-destroy.sh` → `vm-create.sh` → `talos-apply.sh` | Pass. No extra commands |
+| HTTPS `/test/` returns 200 from the host | Pass. But it must be reached by **hostname** (`idea.internal`), not by node IP |
+| `kubectl delete` of the test Deployment is recreated by Flux | Pass. Restored after 608 seconds (reconcile interval 10 minutes) |
+| Removing nginx from `deploy/` and pushing removes it from the cluster | Pass. The namespace was deleted too |
 
-수렴 시간(HDD, 이미지 캐시 없음):
+Convergence time (HDD, no image cache):
 
-| 시점 | 경과 |
+| Point | Elapsed |
 | --- | --- |
-| `vm-destroy.sh` 시작 | 0 |
-| `talos-apply.sh` 종료(쿠버 API 응답) | 약 4분 |
-| Flux 루트 Kustomization 생성 | 약 4분 30초 |
-| Flux가 Cilium을 넘겨받고 cert-manager 설치 완료 | 약 7분 30초 |
-| Kustomization 6개 모두 Ready | 11분 이내 |
+| `vm-destroy.sh` starts | 0 |
+| `talos-apply.sh` ends (Kubernetes API answers) | about 4 min |
+| Flux root Kustomization created | about 4 min 30 s |
+| Flux has taken over Cilium and cert-manager is installed | about 7 min 30 s |
+| All 6 Kustomizations Ready | under 11 min |
 
-## 구성
+## Layout
 
-Talos 머신 설정에 `KubeInlineManifestConfig` 문서 3개를 넣는다(`scripts/render-bootstrap.sh`가 `_out/talos/bootstrap.yaml`로 만든다. 332KB, 시크릿 없음).
+Three `KubeInlineManifestConfig` documents go into the Talos machine config (`scripts/render-bootstrap.sh` writes them to `_out/talos/bootstrap.yaml`; 332KB, no secrets).
 
-| 이름 | 내용 | 출처 |
+| Name | Content | Source |
 | --- | --- | --- |
-| `idea-cilium` | `helm template`으로 렌더한 Cilium | `deploy/infra/controllers/cilium/helmrelease.yaml`의 `.spec.values` |
-| `idea-flux` | Flux 컨트롤러 3개(source, kustomize, helm) | `flux install --export` → `deploy/bootstrap/flux/gotk-components.yaml` |
-| `idea-root` | `OCIRepository`와 루트 `Kustomization` | `deploy/clusters/dev/root.yaml` |
+| `idea-cilium` | Cilium rendered with `helm template` | `.spec.values` of `deploy/infra/controllers/cilium/helmrelease.yaml` |
+| `idea-flux` | The 3 Flux controllers (source, kustomize, helm) | `flux install --export` → `deploy/bootstrap/flux/gotk-components.yaml` |
+| `idea-root` | `OCIRepository` and the root `Kustomization` | `deploy/clusters/dev/root.yaml` |
 
-그 뒤는 Flux가 맞춘다.
+From there Flux takes over.
 
 ```
 idea-root (./clusters/dev)
- ├─ flux-components    ./bootstrap/flux      Flux가 자기 컨트롤러를 관리
+ ├─ flux-components    ./bootstrap/flux      Flux manages its own controllers
  ├─ infra-controllers  ./infra/controllers   Cilium, cert-manager (HelmRelease)
- ├─ infra-config       ./infra/config        ClusterIssuer, 인그레스 인증서   (dependsOn infra-controllers)
- ├─ platform           ./platform            (비어 있음)                     (dependsOn infra-config)
- └─ apps               ./apps                (비어 있음)                     (dependsOn platform)
+ ├─ infra-config       ./infra/config        ClusterIssuer, ingress certificate   (dependsOn infra-controllers)
+ ├─ platform           ./platform            (empty)                             (dependsOn infra-config)
+ └─ apps               ./apps                (empty)                             (dependsOn platform)
 ```
 
-- 소스는 로컬 레지스트리의 OCI 아티팩트 `oci://192.168.123.1:5000/idea/deploy:dev`(`insecure: true`).
-- `scripts/push-deploy.sh`: `check-secrets.sh` → 각 계층 빌드 확인 → `flux push artifact` → 리컨사일 대기.
-- `talos-apply.sh`는 레지스트리에 아티팩트가 없으면 실패한다.
+- The source is the OCI artifact `oci://192.168.123.1:5000/idea/deploy:dev` in the local registry (`insecure: true`).
+- `scripts/push-deploy.sh`: `check-secrets.sh` → build check of each layer → `flux push artifact` → wait for reconcile.
+- `talos-apply.sh` fails if the artifact is not in the registry.
 
-## 버전
+## Versions
 
-| 구성 | 버전 |
+| Component | Version |
 | --- | --- |
 | Cilium | 1.20.4 |
 | Flux | v2.10.0 (source-controller v1.10.1, kustomize-controller v1.10.1, helm-controller v1.7.1) |
 | cert-manager | v1.21.3 |
 
-## 메모리 실측
+## Measured memory
 
-| 대상 | 값 |
+| Target | Value |
 | --- | --- |
-| 노드 사용 메모리 (Talos + 쿠버 + Cilium·Hubble + Flux + cert-manager) | 약 1.9GB / 16GB |
-| 호스트 가용 메모리 | 19GB |
+| Node memory used (Talos + Kubernetes + Cilium/Hubble + Flux + cert-manager) | about 1.9GB / 16GB |
+| Host available memory | 19GB |
 
-계획의 추정(Talos+쿠버+Cilium 3GB, Flux 0.3GB, cert-manager 0.2GB = 3.5GB)보다 적다.
+Less than the plan's estimate (Talos+Kubernetes+Cilium 3GB, Flux 0.3GB, cert-manager 0.2GB = 3.5GB).
 
-## 확인한 것
+## What was checked
 
-### Talos가 심은 Cilium을 Flux HelmRelease가 넘겨받는 방법
+### How the Flux HelmRelease takes over the Cilium that Talos seeded
 
-- **별도 처리가 필요 없었다.** helm-controller v1.7은 설치할 때 이미 있는 리소스의 소유권을 가져간다(끄는 옵션이 `disableTakeOwnership`).
-- 렌더한 매니페스트에 Helm 소유 메타데이터를 넣는 작업도, "렌더한 매니페스트를 Kustomization으로 관리"하는 대안도 쓰지 않았다.
-- 부트스트랩 렌더와 HelmRelease가 **같은 values**를 쓰도록, 렌더 스크립트가 HelmRelease의 `.spec.values`를 읽는다. 차트 버전이 `versions.env`와 다르면 실패한다.
+- **No special handling was needed.** helm-controller v1.7 takes ownership of existing resources on install (the option to turn that off is `disableTakeOwnership`).
+- Neither adding Helm ownership metadata to the rendered manifests nor the fallback of "manage the rendered manifests with a Kustomization" was used.
+- So that the bootstrap render and the HelmRelease use **the same values**, the render script reads `.spec.values` from the HelmRelease. It fails if the chart version differs from `versions.env`.
 
-### 부트스트랩 매니페스트에 키가 들어가지 않게
+### Keeping keys out of the bootstrap manifests
 
-- Cilium 차트의 기본값(`hubble.tls.auto.method: helm`)은 렌더 시점에 인증서와 개인 키를 만들어 매니페스트에 넣는다. 그러면 머신 설정 패치에 키가 들어간다.
-- `method: cronJob`으로 바꿔 클러스터 안에서 만들게 했다. 렌더 스크립트는 데이터가 든 `Secret`이 있으면 실패한다.
+- The Cilium chart default (`hubble.tls.auto.method: helm`) creates certificates and private keys at render time and puts them in the manifests. That would put keys into the machine config patch.
+- Changed to `method: cronJob` so they are created inside the cluster. The render script fails if a `Secret` with data is present.
 
-### Talos 인라인 매니페스트의 성질
+### Nature of Talos inline manifests
 
-- Talos는 **없는 리소스만 만든다.** 바꾸거나 지우지 않는다. 그래서 Flux가 넘겨받은 뒤 서로 싸우지 않는다.
-- 머신 설정 전체 크기는 약 383KB였고 적용에 문제 없었다. URL 방식(`KubeExternalManifestConfig`)은 쓰지 않았다.
+- Talos **only creates resources that do not exist.** It never changes or deletes them. So there is no fight after Flux takes over.
+- The whole machine config was about 383KB and applied without problems. The URL method (`KubeExternalManifestConfig`) was not used.
 
-### 443 포트 바인드
+### Binding port 443
 
-- host network 모드에서 Envoy가 1024 미만 포트를 잡으려면 `envoy.securityContext.capabilities.keepCapNetBindService: true`와 `envoy` 권한 목록에 `NET_BIND_SERVICE` 추가가 필요하다(기본 목록 `NET_ADMIN`, `SYS_ADMIN`은 유지).
+- For Envoy to bind a port below 1024 in host network mode, `envoy.securityContext.capabilities.keepCapNetBindService: true` and `NET_BIND_SERVICE` in the `envoy` capability list are needed (the default `NET_ADMIN`, `SYS_ADMIN` stay).
 - `ingressController.loadbalancerMode: shared`, `hostNetwork.httpPort: 80`, `httpsPort: 443`.
 
-## 계획과 다른 점
+## Deviations from the plan
 
-### HTTPS는 노드 IP가 아니라 호스트 이름으로 접속해야 한다
+### HTTPS must be reached by hostname, not by node IP
 
-- Cilium 인그레스는 `spec.tls[].hosts`가 있어야 HTTPS 리스너를 만들고, 그 이름을 SNI로 보낸 연결만 받는다. `https://<노드 IP>/`는 SNI가 없어서 연결이 끊긴다. `hosts`에 IP나 `*`는 쓸 수 없다.
-- 그래서 인그레스 이름을 `idea.internal`로 정했다(`config.env`의 `INGRESS_HOST`). 인증서는 cert-manager의 자체 서명 발급자가 만들고 SAN에 이 이름과 노드 IP가 들어 있다.
-- 접속 예: `curl -k --resolve idea.internal:443:192.168.123.10 https://idea.internal/test/`
-- HTTP(80)는 IP로도 응답한다.
+- Cilium ingress only creates an HTTPS listener when `spec.tls[].hosts` is set, and only accepts connections that send that name as SNI. `https://<node IP>/` has no SNI, so the connection is dropped. `hosts` cannot be an IP or `*`.
+- So the ingress name was set to `idea.internal` (`INGRESS_HOST` in `config.env`). The certificate is issued by cert-manager's self-signed issuer and has this name and the node IP in its SANs.
+- Example: `curl -k --resolve idea.internal:443:192.168.123.10 https://idea.internal/test/`
+- HTTP (80) also answers on the IP.
 
-### Flux 방식
+### Flux method
 
-- Flux Operator는 쓰지 않았다. 컨트롤러 3개의 설치 매니페스트를 그대로 심는 쪽이 구성요소가 하나 적고, 평문 HTTP 레지스트리(`insecure: true`) 설정을 `OCIRepository`에 직접 적을 수 있어서 단순했다.
+- Flux Operator was not used. Seeding the install manifests of the 3 controllers directly is one component fewer, and the plain-HTTP registry setting (`insecure: true`) can be written straight into the `OCIRepository`, which was simpler.
 
-## 막힌 점
+## Blockers
 
-- 없음(세 번 실패한 지점 없음). 인그레스 TLS만 위 방식으로 정리했다.
+- None (no point failed three times). Only the ingress TLS was settled as above.
 
-## 설계에 반영할 점
+## Points for the design
 
-- **경로 재작성이 필요해지면 Ingress로는 안 된다.** Cilium 인그레스는 경로 접두사를 떼어 주는 기능이 없다. 단계 4의 `/vm/<이름>/`(noVNC)와 단계 7의 `/git/`(Forgejo)은 뒤쪽 서비스가 접두사를 직접 처리하거나, Gateway API(`HTTPRoute`의 `URLRewrite`)로 바꿔야 한다. 단계 4에서 결정이 필요하다.
-- **자가 복구는 리컨사일 주기만큼 늦다.** 지금 주기는 10분이라 지운 리소스가 돌아오는 데 최대 10분 걸린다. 더 빨라야 하면 `apps` 계층의 `interval`을 줄인다.
-- **접속 이름이 필요하다.** 브라우저로 쓰려면 `idea.internal`을 노드 IP로 풀어 줄 방법(hosts 파일, 내부 DNS)이 설치 안내에 있어야 한다.
-- Cilium 터널 모드에서 Kata 포드는 경로 MTU를 물려받지 못한다(Cilium 문서의 Kata 제약). 단일 노드에서는 드러나지 않지만 다중 노드로 갈 때 확인해야 한다.
-- 환경마다 다른 값(레지스트리 주소, 인그레스 IP)은 `deploy/clusters/dev/`에만 두었다. 다른 환경은 `clusters/<이름>/`을 추가하면 된다.
+- **If path rewriting becomes necessary, Ingress will not do.** Cilium ingress cannot strip a path prefix. Stage 4's `/vm/<name>/` (noVNC) and stage 7's `/git/` (Forgejo) need either the backing service to handle the prefix itself, or a switch to Gateway API (`URLRewrite` in `HTTPRoute`). A decision is needed in stage 4.
+- **Self-healing is as slow as the reconcile interval.** The interval is 10 minutes now, so a deleted resource takes up to 10 minutes to come back. If that must be faster, lower `interval` on the `apps` layer.
+- **An access name is needed.** To use it in a browser, the install guide must say how to resolve `idea.internal` to the node IP (hosts file, internal DNS).
+- In Cilium tunnel mode, Kata pods do not inherit the path MTU (the Kata limitation in the Cilium docs). Not visible on a single node, but it must be checked when going multi-node.
+- Values that differ per environment (registry address, ingress IP) live only in `deploy/clusters/dev/`. Another environment is added as `clusters/<name>/`.

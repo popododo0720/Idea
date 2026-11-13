@@ -1,139 +1,139 @@
-# 단계 6. 메인이 작업 VM에 일을 맡기는 방식
+# Stage 6. How the main agent delegates work to a worker VM
 
-날짜: 2026-11-12
-결과: **방식 A(SSH 플러그인) 통과. 방식 B(dsh-yawn)는 문서와 소스로만 평가했고 실행하지 않았다**
+Date: 2026-11-12
+Result: **Option A (SSH plugin) passes. Option B (dsh-yawn) was evaluated from docs and source only, not run**
 
-## 검증
+## Verification
 
-| 항목 | 결과 |
+| Item | Result |
 | --- | --- |
-| 두 방식의 결과와 선택 이유가 보고서에 있다 | 있음. 단, B는 실행 결과가 아니라 문서·소스 평가다(아래 "계획과 다르게 한 것") |
-| 선택한 방식으로 "예제 저장소를 클론해 테스트를 돌리고 결과를 돌려준다"가 통과 | 통과 (방식 A) |
+| The results of both options and the reason for the choice are in the report | Present. But B is a docs and source evaluation, not a run result (see "Deviations from the plan" below) |
+| "Clone the example repository, run the tests and return the result" passes with the chosen option | Pass (option A) |
 
-## 방식 A. SSH 플러그인
+## Option A. SSH plugin
 
-### 구성
+### Layout
 
 ```
 idea-system                              idea-work
 ┌─────────────────────────┐              ┌──────────────────────────────┐
-│ idea-main (일반 포드)    │   SSH 2222   │ w1 (Kata VM)                  │
+│ idea-main (regular pod) │   SSH 2222   │ w1 (Kata VM)                  │
 │  dsh headless           │ ───────────▶ │  sshd → dsh headless --json   │
-│  + worker_run 도구       │              │  셸, git, Node.js, Chrome      │
-│  개인 키 (Secret)        │              │  공개 키 (Secret)              │
+│  + worker_run tool      │              │  shell, git, Node.js, Chrome   │
+│  private key (Secret)   │              │  public key (Secret)           │
 └─────────────────────────┘              └──────────────────────────────┘
 ```
 
-- **메인 에이전트**: `deploy/apps/main/main.yaml`. 일반 포드(Kata 아님), 이미지 `idea/main`(dsh + 플러그인 + SSH 클라이언트, 1.25GB). dsh headless는 과제 하나를 처리하고 끝나므로, 포드는 대기하다가 과제가 올 때마다 `dsh headless`를 실행한다.
-- **플러그인**: `plugins/worker-ssh/src/index.ts`(TypeScript). 도구 `worker_run(worker, task)` 하나를 추가한다. 작업 포드에 SSH로 들어가 `dsh headless --json`을 실행하고, 이벤트를 읽어 완료 여부·답·도구 호출 수·세션 ID를 돌려준다.
-  - 과제 본문은 표준 입력으로 보낸다(명령줄에 싣지 않는다).
-  - 원격 실행의 이벤트 전체를 메인 포드의 `/tmp/idea-runs/<작업 포드>-<시각>.jsonl`에 남긴다.
-  - 플러그인은 빌드 없이 소스 경로로 로드한다(dsh가 `.ts`를 직접 읽는다).
-- **SSH 키**: 클러스터 안에서 생성한다(External Secrets Operator의 `SSHKey` 생성기, `deploy/apps/main/ssh-key.yaml`).
-  - `idea-system/idea-worker-ssh`: 개인 키 + 공개 키. 메인 포드가 개인 키만 마운트한다.
-  - `idea-work/idea-worker-ssh-pub`: 공개 키만(`authorized_keys`). 작업 포드가 마운트한다.
-  - 한 번 생성하고 유지한다(`refreshPolicy: CreatedOnce`). 사람 손과 레포를 거치지 않는다.
-- **네트워크 정책**: 작업 포드는 메인에서 오는 2222만 추가로 받고, 클러스터 안 Git 서버(9418)로만 추가로 나간다.
-- **예제 저장소**: `examples/hello-calc`(함수 2개와 `node --test` 테스트). Forgejo가 아직 없어서, 메인 이미지에 넣어 둔 예제를 읽기 전용 Git 서버 포드(`git-fixture`)로 서비스했다. 단계 7에서 Forgejo로 바뀐다.
+- **Main agent**: `deploy/apps/main/main.yaml`. A regular pod (not Kata), image `idea/main` (dsh + plugin + SSH client, 1.25GB). dsh headless handles one task and exits, so the pod waits and runs `dsh headless` whenever a task arrives.
+- **Plugin**: `plugins/worker-ssh/src/index.ts` (TypeScript). Adds one tool, `worker_run(worker, task)`. It SSHes into the worker pod, runs `dsh headless --json`, reads the events and returns completion status, answer, tool call count and session ID.
+  - The task body is sent on standard input (not on the command line).
+  - The full event stream of the remote run is kept on the main pod at `/tmp/idea-runs/<worker pod>-<time>.jsonl`.
+  - The plugin is loaded from its source path without a build (dsh reads `.ts` directly).
+- **SSH keys**: generated inside the cluster (External Secrets Operator `SSHKey` generator, `deploy/apps/main/ssh-key.yaml`).
+  - `idea-system/idea-worker-ssh`: private key + public key. The main pod mounts only the private key.
+  - `idea-work/idea-worker-ssh-pub`: public key only (`authorized_keys`). The worker pod mounts it.
+  - Generated once and kept (`refreshPolicy: CreatedOnce`). Never passes through human hands or the repository.
+- **Network policy**: the worker pod additionally accepts only 2222 from main, and additionally reaches only the in-cluster Git server (9418).
+- **Example repository**: `examples/hello-calc` (2 functions and `node --test` tests). Forgejo does not exist yet, so the example bundled in the main image is served by a read-only Git server pod (`git-fixture`). Replaced by Forgejo in stage 7.
 
-### 결과
+### Result
 
-메인 포드에서:
+On the main pod:
 
 ```
 dsh headless --json --approval-policy never \
-  "worker_run 도구로 w1에게 맡겨라: 저장소를 클론하고 npm test를 돌려 통과/실패 수와 커밋 해시를 보고하라"
+  "Use the worker_run tool to delegate to w1: clone the repository, run npm test, and report the pass/fail counts and the commit hash"
 ```
 
-- 메인이 `worker_run`을 호출 → 작업 VM이 도구 7번을 써서 클론·테스트 → "통과 2, 실패 0, HEAD `1b088a55…`"를 돌려줌 → 메인이 그대로 보고. 커밋 해시는 Git 서버의 실제 HEAD와 일치한다.
-- 양쪽 모두 종료 코드 0, `final.reason.kind = completed`.
+- Main calls `worker_run` → the worker VM clones and tests with 7 tool calls → returns "2 passed, 0 failed, HEAD `1b088a55…`" → main reports it as is. The commit hash matches the real HEAD on the Git server.
+- Both sides exit code 0, `final.reason.kind = completed`.
 
-### 기준별 평가
+### Evaluation by criterion
 
-| 기준 | 방식 A |
+| Criterion | Option A |
 | --- | --- |
-| Kata RuntimeClass | 그대로 쓴다. 작업 포드는 우리가 선언한 포드다 |
-| 데스크톱 이미지 | 그대로 쓴다. 에이전트가 VM 안에서 돌아서 브라우저·데스크톱 도구가 그 자리에서 동작한다 |
-| 세션이 끊겼을 때 복구 | **부분적으로 됨.** SSH가 끊기면 VM 안의 에이전트 프로세스는 죽지만, 실행 중이던 셸 명령은 끝까지 갔고(파일이 만들어짐), 세션 기록이 VM에 남아 `--session-id`로 이어 하기가 됐다 |
-| 로그를 어디서 읽는가 | 메인 포드의 `/tmp/idea-runs/*.jsonl`(이벤트 전체), 작업 VM의 `~/.dsh/sessions/`(세션 기록). 둘 다 포드가 없어지면 사라진다 |
-| 우리 네트워크 정책과 맞는가 | 맞는다. 메인→작업 2222 한 줄만 추가했다. 작업 포드에서 밖으로 새 연결을 열 필요가 없다 |
-| 선언형으로 둘 수 있는가 | 전부 `deploy/`에 있다(포드, 키 생성, 정책). 손으로 만든 리소스 없음 |
+| Kata RuntimeClass | Used as is. The worker pod is the pod we declare |
+| Desktop image | Used as is. The agent runs inside the VM, so browser and desktop tools work right there |
+| Recovery when the session drops | **Partial.** If SSH drops, the agent process in the VM dies, but the running shell command ran to completion (the file was created), and the session record stays in the VM so continuation with `--session-id` worked |
+| Where to read logs | `/tmp/idea-runs/*.jsonl` on the main pod (full events), `~/.dsh/sessions/` in the worker VM (session record). Both disappear with the pod |
+| Fits our network policy | Yes. Only one line, main → worker 2222, was added. The worker pod needs no new outbound connection |
+| Can be kept declarative | All in `deploy/` (pod, key generation, policy). No hand-made resources |
 
-### 약점
+### Weaknesses
 
-- 모델 키가 작업 VM 안에 있다(에이전트가 거기서 돌기 때문).
-- 작업 포드의 SSH 호스트 키는 시작할 때마다 새로 만들어져 고정할 수 없다. 플러그인은 호스트 키 확인을 끄고 접속한다. 클러스터 안 통신이고 Cilium 정책으로 상대가 정해져 있지만, 검증은 아니다.
-- 끊기면 에이전트가 죽는다. 다시 이어 붙이는 것은 호출하는 쪽이 해야 한다.
+- The model key is inside the worker VM (because the agent runs there).
+- The worker pod's SSH host key is regenerated at every start and cannot be pinned. The plugin connects with host key checking off. It is in-cluster traffic and the peer is fixed by Cilium policy, but it is not verification.
+- The agent dies on disconnect. Reattaching is up to the caller.
 
-## 방식 B. dsh-yawn의 Kubernetes 샌드박스 (실행하지 않음)
+## Option B. dsh-yawn's Kubernetes sandbox (not run)
 
-dsh-yawn은 dsh 저장소의 일부가 아니라 개인이 만든 제3자 배포판이다(`github.com/zhming0/dsh-yawn`, MIT, 확인한 커밋 `bc06a36`, 2026-11-08). 아래는 그 문서와 매니페스트를 읽은 결과다.
+dsh-yawn is not part of the dsh repository but a third-party distribution by an individual (`github.com/zhming0/dsh-yawn`, MIT, commit checked `bc06a36`, 2026-11-08). The following comes from reading its docs and manifests.
 
-### 동작 방식
+### How it works
 
-- 컨트롤 플레인 포드가 `dsh web`(웹 UI)을 띄우고, **에이전트 루프는 컨트롤 플레인에서 돈다.** 파일·셸 도구만 세션별 샌드박스 포드에서 실행한다.
-- 샌드박스는 kubernetes-sigs의 agent-sandbox v1.0.2 CRD로 만든다(`SandboxTemplate`, `SandboxWarmPool`, 세션마다 `SandboxClaim`).
-- 샌드박스 안의 러너(Go)가 컨트롤 플레인으로 웹소켓(8081)을 걸어 온다. 안으로 들어가는 연결은 없다.
+- A control plane pod runs `dsh web` (the web UI), and **the agent loop runs on the control plane.** Only file and shell tools run in a per-session sandbox pod.
+- Sandboxes are created with the kubernetes-sigs agent-sandbox v1.0.2 CRDs (`SandboxTemplate`, `SandboxWarmPool`, a `SandboxClaim` per session).
+- A runner (Go) in the sandbox opens a websocket (8081) to the control plane. No inbound connections.
 
-### 기준별 평가
+### Evaluation by criterion
 
-| 기준 | 방식 B | 근거 |
+| Criterion | Option B | Basis |
 | --- | --- | --- |
-| Kata RuntimeClass | 설정은 가능, 검증된 적 없음 | 템플릿에 `runtimeClassName`을 넣을 수 있다. 문서 예시는 gVisor이고 Kata 언급은 없다 |
-| 데스크톱 이미지 | **그대로는 못 쓴다** | 러너 이미지는 컨트롤 플레인과 같은 버전이어야 한다. 우리 이미지를 쓰려면 그 러너를 넣어 다시 만들어야 한다 |
-| 브라우저·데스크톱 도구 | **구조가 맞지 않는다** | 에이전트가 컨트롤 플레인에서 돌아서 dsh의 브라우저 플러그인도 거기서 뜬다. 샌드박스의 데스크톱 Chrome을 조작하지 못한다 |
-| 세션이 끊겼을 때 복구 | A보다 낫다(문서 기준) | 러너가 다시 붙고, 컨트롤 플레인 재시작과 이미지 업그레이드를 넘긴다고 적혀 있다 |
-| 로그를 어디서 읽는가 | 컨트롤 플레인(웹 UI와 세션 기록) | 한곳에 모인다 |
-| 우리 네트워크 정책과 맞는가 | 방향은 맞음 | 샌드박스→컨트롤 플레인 8081만 열면 된다. 템플릿이 자체 NetworkPolicy를 가진다 |
-| 포드 보안 설정 | **맞지 않는다** | 러너 컨테이너가 `allowPrivilegeEscalation: true`, capability 10개 추가, 비밀번호 없는 sudo. 기본 템플릿에는 `privileged: true`인 Docker 사이드카가 있다(뺄 수 있음). 우리 작업 네임스페이스는 Pod Security `restricted`다 |
-| 선언형으로 둘 수 있는가 | 가능하지만 구성요소가 늘어난다 | agent-sandbox 컨트롤러와 CRD, dsh-yawn Helm 차트, 영구 볼륨이 추가로 필요하다 |
-| 과제를 넣는 방법 | 웹 UI | headless로 과제를 넣는 문서화된 API를 찾지 못했다 |
-| 모델 키 위치 | A보다 낫다 | 키가 컨트롤 플레인에만 있고 샌드박스에는 들어가지 않는다 |
+| Kata RuntimeClass | Configurable, never verified | `runtimeClassName` can go in the template. The docs example is gVisor; Kata is not mentioned |
+| Desktop image | **Cannot be used as is** | The runner image must be the same version as the control plane. Using our image means rebuilding it with that runner inside |
+| Browser and desktop tools | **The structure does not fit** | The agent runs on the control plane, so dsh's browser plugin starts there too. It cannot control the desktop Chrome in the sandbox |
+| Recovery when the session drops | Better than A (per docs) | It says the runner reattaches and survives control plane restarts and image upgrades |
+| Where to read logs | Control plane (web UI and session records) | Gathered in one place |
+| Fits our network policy | Direction fits | Only sandbox → control plane 8081 needs opening. The template carries its own NetworkPolicy |
+| Pod security settings | **Do not fit** | The runner container has `allowPrivilegeEscalation: true`, 10 added capabilities, passwordless sudo. The default template has a `privileged: true` Docker sidecar (removable). Our work namespace is Pod Security `restricted` |
+| Can be kept declarative | Possible, but more components | Needs the agent-sandbox controller and CRDs, the dsh-yawn Helm chart and persistent volumes in addition |
+| How to submit a task | Web UI | No documented API for submitting a task headlessly was found |
+| Where the model key lives | Better than A | The key is only on the control plane and does not enter the sandbox |
 
-## 선택: 방식 A
+## Choice: option A
 
-이유:
+Reasons:
 
-1. **이 프로젝트의 작업 VM은 "데스크톱이 있는 VM 안에서 에이전트가 브라우저까지 쓰는" 것이다.** A는 그 구조 그대로이고, B는 에이전트를 밖에 두고 셸만 안에서 돌리는 구조라 단계 4·5에서 만든 것(데스크톱 Chrome 조작)을 쓰지 못한다.
-2. B는 우리 이미지와 Pod Security 설정을 그대로 쓸 수 없고, 제3자 구성요소 3개(agent-sandbox, dsh-yawn 컨트롤 플레인, 러너)가 더 필요하다. dsh 자체가 개발자 미리보기인데 그 위에 개인 프로젝트를 하나 더 얹게 된다.
-3. A는 이미 있는 것(sshd, dsh headless)만으로 150줄짜리 플러그인 하나로 끝났다.
+1. **This project's worker VM is "an agent using a browser inside a VM that has a desktop".** A keeps that structure; B keeps the agent outside and runs only the shell inside, so what was built in stages 4 and 5 (desktop Chrome control) cannot be used.
+2. B cannot use our image and Pod Security settings as is, and needs 3 more third-party components (agent-sandbox, the dsh-yawn control plane, the runner). dsh itself is a developer preview, and this would stack a personal project on top of it.
+3. A was done with one 150-line plugin using only what already exists (sshd, dsh headless).
 
-B에서 가져올 만한 점은 단계 7 이후의 개선 항목으로 적어 둔다(아래).
+The points worth taking from B are noted as improvement items after stage 7 (below).
 
-## 계획과 다르게 한 것
+## Deviations from the plan
 
-- **방식 B를 실행하지 않았다.** 계획은 "두 방식을 같은 작업으로 비교"였다. B를 돌리려면 agent-sandbox 컨트롤러, 영구 볼륨 프로비저너(지금 클러스터에 없음), dsh-yawn 차트를 추가로 설치해야 하고, 그래도 과제를 넣는 길이 웹 UI뿐이어서 "같은 작업을 메인이 맡긴다"를 재현할 수 없다. 문서만으로도 데스크톱 이미지와 Pod Security 기준에서 탈락이라, 범위를 넓혀 설치하지 않고 문서·소스 평가로 대신했다. 실제 실행 비교가 필요하면 따로 진행한다.
-- **작업 포드와 메인의 SSH 연결에 dsh의 공식 SSH 패키지(`dsh-ssh` 등)를 쓰지 않았다.** 그 패키지는 "에이전트는 메인에, 파일·프로세스는 원격에" 두는 구조(B와 같은 방향)라 같은 이유로 맞지 않는다.
-- **시크릿 생성기로 External Secrets Operator를 넣었다.** 계획의 "시크릿 생성 오퍼레이터"에 해당한다. 단계 7의 Postgres·Forgejo 비밀번호도 같은 방식(`Password` 생성기)으로 만든다.
+- **Option B was not run.** The plan was "compare both options on the same task". Running B would need the agent-sandbox controller, a persistent volume provisioner (not in the cluster now) and the dsh-yawn chart installed in addition, and even then the only way to submit a task is the web UI, so "main delegates the same task" cannot be reproduced. The docs alone already rule it out on the desktop image and Pod Security criteria, so instead of widening the scope to install it, a docs and source evaluation was done. If an actual run comparison is needed, it is done separately.
+- **dsh's official SSH packages (`dsh-ssh` and so on) were not used for the SSH link between worker pod and main.** Those packages put "the agent on main, files and processes remote" (the same direction as B), which does not fit for the same reason.
+- **External Secrets Operator was added as the secret generator.** This is the plan's "secret generation operator". The Postgres and Forgejo passwords in stage 7 are created the same way (`Password` generator).
 
-## 버전
+## Versions
 
-| 구성 | 버전 |
+| Component | Version |
 | --- | --- |
-| 메인 이미지 | 0.1.2 |
-| 작업 이미지 | 0.4.0 (SSH 세션용 환경 파일 추가) |
+| Main image | 0.1.2 |
+| Worker image | 0.4.0 (added an environment file for SSH sessions) |
 | External Secrets Operator | 2.15.0 |
 
-## 메모리 실측
+## Measured memory
 
-| 대상 | 값 |
+| Target | Value |
 | --- | --- |
-| 노드 사용 메모리 (플랫폼 + ESO + 메인 + Git 서버 + 작업 VM 1개) | 약 3.0GB / 16GB, 가용 11.9GB |
-| 호스트 가용 메모리 | 13GB |
+| Node memory used (platform + ESO + main + Git server + 1 worker VM) | about 3.0GB / 16GB, 11.9GB available |
+| Host available memory | 13GB |
 
-## 막힌 점과 해결
+## Problems and fixes
 
-- **플러그인이 dsh 패키지를 찾지 못했다**(`Cannot find package '@deepseek-ai/dsh-tools'`). 소스 경로로 로드한 플러그인은 자기 위치에서 모듈을 찾는다. 플러그인 디렉터리에 dsh 설치의 `node_modules`로 가는 링크를 뒀다.
-- **도구 출력 스키마**: 객체에는 `additionalProperties`를 명시해야 한다.
-- **플러그인이 로드되지 않으면 dsh는 경고만 하고 계속 돈다.** 첫 시도에서 메인 에이전트는 `worker_run`이 없다고 정직하게 보고한 뒤 과제를 자기 포드에서 직접 수행했다. 컨트롤러는 "과제가 끝났다"가 아니라 "`worker_run`이 호출됐고 완료됐다"를 확인해야 한다.
-- **SSH 세션에는 포드의 환경 변수가 없다.** 작업 이미지의 시작 스크립트가 필요한 값(모델 키, `DISPLAY`)을 포드 안 파일(`/tmp/idea/env`, 0600)에 적고 원격 명령이 읽는다. 이미지에는 들어가지 않는다.
-- **Node가 `libatomic1`을 요구한다.** 메인 이미지(최소 Debian)에 추가했다.
+- **The plugin could not find the dsh package** (`Cannot find package '@deepseek-ai/dsh-tools'`). A plugin loaded from a source path resolves modules from its own location. A link to the `node_modules` of the dsh install was put in the plugin directory.
+- **Tool output schema**: objects must declare `additionalProperties` explicitly.
+- **If a plugin fails to load, dsh only warns and carries on.** On the first attempt the main agent honestly reported that `worker_run` did not exist and then did the task directly in its own pod. The controller must check "`worker_run` was called and completed", not "the task is done".
+- **SSH sessions do not have the pod's environment variables.** The worker image's start script writes the needed values (model key, `DISPLAY`) to a file inside the pod (`/tmp/idea/env`, 0600) and the remote command reads it. It does not go into the image.
+- **Node requires `libatomic1`.** Added to the main image (minimal Debian).
 
-## 설계에 반영할 점
+## Points for the design
 
-- **끊겨도 죽지 않게 하려면** 작업 VM 쪽에서 dsh를 SSH 세션과 분리해 띄우고(예: `setsid`), 메인은 출력 파일을 따라 읽는 구조로 바꾼다. 다시 붙을 때는 세션 ID로 찾는다. `worker_run`에 이어 하기용 `sessionId` 인자를 추가한다.
-- **로그를 포드 밖에 둔다.** 지금은 양쪽 모두 포드와 함께 사라진다. 단계 7에서 컨트롤러가 실행 기록을 Postgres나 Task 리소스에 남긴다.
-- **모델 키를 작업 VM에 두지 않는 구조**는 B의 장점이다. 클러스터 안 모델 프록시로 같은 효과를 낼 수 있는지 나중에 검토한다.
-- **메인 포드용 네트워크 정책이 아직 없다.** 메인은 작업 VM과 모델 API, DNS만 나가면 된다.
-- 메인 에이전트는 일반 포드에서도 dsh의 셸 도구가 동작했다. 메인이 과제를 직접 처리해 버리지 않도록, 메인 프로파일에서 셸·파일 도구를 끄는 것을 검토한다.
-- `git-fixture`는 단계 7에서 Forgejo가 들어오면 지운다.
+- **To survive disconnects**, start dsh on the worker VM side detached from the SSH session (for example `setsid`) and have main tail an output file. On reattach, find it by session ID. Add a `sessionId` argument to `worker_run` for continuation.
+- **Keep logs outside the pod.** Right now both sides disappear with the pod. In stage 7 the controller records the run in Postgres or the Task resource.
+- **Keeping the model key out of the worker VM** is B's advantage. Look later at whether an in-cluster model proxy gives the same effect.
+- **There is no network policy for the main pod yet.** Main only needs to reach the worker VM, the model API and DNS.
+- dsh's shell tool worked for the main agent in a regular pod too. To keep main from doing the task itself, consider turning off the shell and file tools in the main profile.
+- `git-fixture` is removed when Forgejo arrives in stage 7.

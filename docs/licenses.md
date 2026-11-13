@@ -1,69 +1,69 @@
-# 구성요소와 라이선스
+# Components and licenses
 
-작성일 2026-11-12, 고침 2026-11-13(공개 배포 준비: Chrome을 Chromium으로 바꾸고 Claude Agent SDK를 이미지에서 뺌). 버전은 `versions.env`와 같다. 라이선스는 각 프로젝트 저장소의 표기를 옮긴 것이고, 배포 전에 법적 검토를 대신하지 않는다.
+Written 2026-11-12, revised 2026-11-13 (preparing the public release: Chrome replaced with Chromium, Claude Agent SDK removed from the image). Versions match `versions.env`. The licenses are copied from each project's own notice and are no substitute for a legal review before distribution.
 
-"확인" 열: `저장소` = 저장소 메타데이터나 LICENSE 파일에서 확인, `알려진 값` = 프로젝트가 공개적으로 밝힌 라이선스를 적었고 이번에 파일로 다시 확인하지는 않음.
+"Checked" column: `repository` = confirmed from repository metadata or the LICENSE file; `known value` = the license the project states publicly, not re-checked against a file this time.
 
-## 클러스터에 배포되는 것
+## Deployed in the cluster
 
-| 이름 | 버전 | 라이선스 | 출처 | 확인 |
+| Name | Version | License | Source | Checked |
 | --- | --- | --- | --- | --- |
-| Talos Linux | v1.14.6 | MPL-2.0 | github.com/siderolabs/talos | 저장소 |
-| Kubernetes | v1.37.1 | Apache-2.0 | github.com/kubernetes/kubernetes | 저장소 |
-| Kata Containers (Talos 확장) | 4.3.1 | Apache-2.0 | github.com/kata-containers/kata-containers | 저장소 |
-| QEMU guest agent (Talos 확장) | 11.1.1 | GPL-2.0-or-later | github.com/siderolabs/extensions (qemu-guest-agent) | 저장소 |
-| Cilium (Hubble, Envoy 포함) | 1.20.4 | Apache-2.0 (일부 eBPF 코드는 GPL-2.0 또는 BSD-2-Clause) | github.com/cilium/cilium | 저장소 |
-| Flux (source·kustomize·helm 컨트롤러) | v2.10.0 | Apache-2.0 | github.com/fluxcd/flux2 | 저장소 |
-| cert-manager | v1.21.3 | Apache-2.0 | github.com/cert-manager/cert-manager | 저장소 |
-| External Secrets Operator | 2.15.0 | Apache-2.0 | github.com/external-secrets/external-secrets | 저장소 |
-| Local Path Provisioner | v0.0.37 | Apache-2.0 | github.com/rancher/local-path-provisioner | 저장소 |
-| BusyBox (프로비저너 도우미 이미지) | 1.38.0 | GPL-2.0 | busybox.net | 알려진 값 |
-| PostgreSQL | 18.6 | PostgreSQL License | postgresql.org | 알려진 값 |
-| Forgejo | 15.0.11 | GPL-3.0-or-later | code.forgejo.org/forgejo/forgejo | 알려진 값 |
-| Forgejo Helm 차트 | 17.3.2 | MIT | code.forgejo.org/forgejo-helm/forgejo-helm | 저장소 |
-| Forgejo Runner | 13.2.1 | GPL-3.0 | code.forgejo.org/forgejo/runner | 저장소 |
-| nginx (unprivileged 이미지) | 1.31.7 | BSD-2-Clause (nginx), 이미지 빌드 파일은 Apache-2.0 | github.com/nginxinc/docker-nginx-unprivileged | 저장소 |
+| Talos Linux | v1.14.6 | MPL-2.0 | github.com/siderolabs/talos | repository |
+| Kubernetes | v1.37.1 | Apache-2.0 | github.com/kubernetes/kubernetes | repository |
+| Kata Containers (Talos extension) | 4.3.1 | Apache-2.0 | github.com/kata-containers/kata-containers | repository |
+| QEMU guest agent (Talos extension) | 11.1.1 | GPL-2.0-or-later | github.com/siderolabs/extensions (qemu-guest-agent) | repository |
+| Cilium (with Hubble, Envoy) | 1.20.4 | Apache-2.0 (some eBPF code is GPL-2.0 or BSD-2-Clause) | github.com/cilium/cilium | repository |
+| Flux (source, kustomize, helm controllers) | v2.10.0 | Apache-2.0 | github.com/fluxcd/flux2 | repository |
+| cert-manager | v1.21.3 | Apache-2.0 | github.com/cert-manager/cert-manager | repository |
+| External Secrets Operator | 2.15.0 | Apache-2.0 | github.com/external-secrets/external-secrets | repository |
+| Local Path Provisioner | v0.0.37 | Apache-2.0 | github.com/rancher/local-path-provisioner | repository |
+| BusyBox (provisioner helper image) | 1.38.0 | GPL-2.0 | busybox.net | known value |
+| PostgreSQL | 18.6 | PostgreSQL License | postgresql.org | known value |
+| Forgejo | 15.0.11 | GPL-3.0-or-later | code.forgejo.org/forgejo/forgejo | known value |
+| Forgejo Helm chart | 17.3.2 | MIT | code.forgejo.org/forgejo-helm/forgejo-helm | repository |
+| Forgejo Runner | 13.2.1 | GPL-3.0 | code.forgejo.org/forgejo/runner | repository |
+| nginx (unprivileged image) | 1.31.7 | BSD-2-Clause (nginx), image build files Apache-2.0 | github.com/nginxinc/docker-nginx-unprivileged | repository |
 
-## 작업 이미지와 메인 이미지에 들어가는 것
+## Included in the worker image and the main image
 
-| 이름 | 버전 | 라이선스 | 출처 | 확인 |
+| Name | Version | License | Source | Checked |
 | --- | --- | --- | --- | --- |
-| Debian (기반 이미지와 패키지) | trixie-20261104-slim | 패키지별로 다름(DFSG 자유 소프트웨어) | debian.org | 알려진 값 |
-| XFCE | Debian trixie 패키지 | GPL-2.0-or-later, LGPL-2.0-or-later | xfce.org | 알려진 값 |
-| TigerVNC | Debian trixie 패키지 | GPL-2.0 | github.com/TigerVNC/tigervnc | 저장소 |
-| noVNC | Debian trixie 패키지 | MPL-2.0 (일부 파일은 다른 라이선스) | github.com/novnc/noVNC | 알려진 값 |
-| websockify | Debian trixie 패키지 | LGPL-3.0 | github.com/novnc/websockify | 저장소 |
-| OpenSSH | Debian trixie 패키지 | BSD 계열 | openssh.com | 알려진 값 |
-| Git | Debian trixie 패키지 | GPL-2.0 | git-scm.com | 알려진 값 |
-| bubblewrap | Debian trixie 패키지 | LGPL-2.0-or-later | github.com/containers/bubblewrap | 알려진 값 |
-| Supervisor | Debian trixie 패키지 | BSD 계열(Repoze) | github.com/Supervisor/supervisor | 알려진 값 |
-| Noto CJK, Liberation 글꼴 | Debian trixie 패키지 | SIL OFL 1.1 | — | 알려진 값 |
-| Node.js | v26.13.1 | MIT (묶인 구성요소는 각자 라이선스) | github.com/nodejs/node | 알려진 값 |
-| Chromium | Debian trixie 패키지 | BSD-3-Clause (묶인 구성요소는 각자 라이선스) | chromium.org | 알려진 값 |
-| dsh (DeepSeek Harness)와 공식 플러그인 | 0.2.2-rc.1 | MIT | github.com/deepseek-ai/deepseek-harness | 저장소 |
-| pnpm | 11.28.5 | MIT | github.com/pnpm/pnpm | 저장소 |
-| chrome-devtools-mcp (dsh 브라우저 제공자가 고정) | 1.9.0 | Apache-2.0 | github.com/ChromeDevTools/chrome-devtools-mcp | 저장소 |
-| Cua Driver (dsh 데스크톱 제공자가 고정) | 0.28.0 | MIT | github.com/trycua/cua | 저장소 |
-| dsh의 나머지 npm 의존성 | `images/worker/dsh/package-lock.json` | 패키지별로 다름(726개, 개별 확인 안 함) | npm | — |
+| Debian (base image and packages) | trixie-20261104-slim | Varies per package (DFSG free software) | debian.org | known value |
+| XFCE | Debian trixie package | GPL-2.0-or-later, LGPL-2.0-or-later | xfce.org | known value |
+| TigerVNC | Debian trixie package | GPL-2.0 | github.com/TigerVNC/tigervnc | repository |
+| noVNC | Debian trixie package | MPL-2.0 (some files under other licenses) | github.com/novnc/noVNC | known value |
+| websockify | Debian trixie package | LGPL-3.0 | github.com/novnc/websockify | repository |
+| OpenSSH | Debian trixie package | BSD-style | openssh.com | known value |
+| Git | Debian trixie package | GPL-2.0 | git-scm.com | known value |
+| bubblewrap | Debian trixie package | LGPL-2.0-or-later | github.com/containers/bubblewrap | known value |
+| Supervisor | Debian trixie package | BSD-style (Repoze) | github.com/Supervisor/supervisor | known value |
+| Noto CJK, Liberation fonts | Debian trixie package | SIL OFL 1.1 | — | known value |
+| Node.js | v26.13.1 | MIT (bundled components under their own licenses) | github.com/nodejs/node | known value |
+| Chromium | Debian trixie package | BSD-3-Clause (bundled components under their own licenses) | chromium.org | known value |
+| dsh (DeepSeek Harness) and official plugins | 0.2.2-rc.1 | MIT | github.com/deepseek-ai/deepseek-harness | repository |
+| pnpm | 11.28.5 | MIT | github.com/pnpm/pnpm | repository |
+| chrome-devtools-mcp (pinned by the dsh browser provider) | 1.9.0 | Apache-2.0 | github.com/ChromeDevTools/chrome-devtools-mcp | repository |
+| Cua Driver (pinned by the dsh desktop provider) | 0.28.0 | MIT | github.com/trycua/cua | repository |
+| Remaining npm dependencies of dsh | `images/worker/dsh/package-lock.json` | Varies per package (726 packages, not checked individually) | npm | — |
 
-## 웹 화면에 들어가는 것 (`console/design/fonts`)
+## Included in the web UI (`console/design/fonts`)
 
-| 이름 | 버전 | 라이선스 | 출처 | 확인 |
+| Name | Version | License | Source | Checked |
 | --- | --- | --- | --- | --- |
-| Pretendard (가변, KS X 1001 한글로 줄임) | v1.3.9 | OFL-1.1 | github.com/orioncactus/pretendard | 릴리스의 LICENSE.txt |
-| Geist Mono (가변) | v1.9.2 | OFL-1.1 | github.com/vercel/geist-font | 릴리스의 OFL.txt |
+| Pretendard (variable, subset to KS X 1001 Hangul) | v1.3.9 | OFL-1.1 | github.com/orioncactus/pretendard | LICENSE.txt in the release |
+| Geist Mono (variable) | v1.9.2 | OFL-1.1 | github.com/vercel/geist-font | OFL.txt in the release |
 
-## 우리가 만든 것
+## What we made
 
-| 이름 | 라이선스 | 비고 |
+| Name | License | Notes |
 | --- | --- | --- |
-| 이 저장소(컨트롤러, 플러그인, 스크립트, 매니페스트) | 아직 정하지 않음 | 공개 전에 LICENSE 파일을 추가해야 한다 |
-| 컨트롤러의 Go 의존성: client-go, api, apimachinery v0.37.1 | Apache-2.0 | github.com/kubernetes/client-go |
-| 컨트롤러의 Go 의존성: pgx v5.13.0 | MIT | github.com/jackc/pgx |
+| This repository (controller, plugins, scripts, manifests) | Not decided yet | A LICENSE file must be added before publishing |
+| Controller Go dependencies: client-go, api, apimachinery v0.37.1 | Apache-2.0 | github.com/kubernetes/client-go |
+| Controller Go dependency: pgx v5.13.0 | MIT | github.com/jackc/pgx |
 
-## 호스트에서 쓰는 도구 (배포물에 들어가지 않음)
+## Tools used on the host (not part of the deliverables)
 
-| 이름 | 버전 | 라이선스 |
+| Name | Version | License |
 | --- | --- | --- |
 | talosctl | v1.14.6 | MPL-2.0 |
 | kubectl | v1.37.1 | Apache-2.0 |
@@ -71,20 +71,20 @@
 | flux CLI | v2.10.0 | Apache-2.0 |
 | cilium CLI | v0.20.2 | Apache-2.0 |
 | gitleaks | v8.30.1 | MIT |
-| distribution (레지스트리) | v3.1.2 | Apache-2.0 |
+| distribution (registry) | v3.1.2 | Apache-2.0 |
 | podman | 4.9.3 | Apache-2.0 |
-| Go 툴체인 이미지 | 1.27.4 | BSD-3-Clause |
+| Go toolchain image | 1.27.4 | BSD-3-Clause |
 
-## 이미지에 넣지 않는 것
+## Not included in the images
 
-| 이름 | 라이선스 | 어떻게 쓰이나 |
+| Name | License | How it is used |
 | --- | --- | --- |
-| Google Chrome | 독점, 재배포 불가 | 쓰지 않는다. 작업 이미지는 Chromium을 쓴다. |
-| Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) | 독점 (Anthropic 상용 약관) | 이미지에 없다. 사용자가 Claude 토큰을 넣은 경우에만 작업 포드가 시작할 때 npm에서 직접 받는다(`idea-claude-subagent`). |
+| Google Chrome | Proprietary, not redistributable | Not used. The worker image uses Chromium. |
+| Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) | Proprietary (Anthropic commercial terms) | Not in the image. Only when the user has provided a Claude token does the worker pod fetch it directly from npm at start (`idea-claude-subagent`). |
 
-## 배포 전에 정리해야 할 것
+## To sort out before distribution
 
-- **GPL 구성요소**(Forgejo, Forgejo Runner, BusyBox, TigerVNC, Git, XFCE)는 수정 없이 공식 바이너리·이미지를 그대로 쓴다. 우리가 올리는 이미지에 들어가는 것(Forgejo Runner, TigerVNC, Git, XFCE, BusyBox)은 소스 제공 의무를 확인한다.
-- dsh의 npm 의존성은 개별 라이선스를 확인하지 않았다. 배포 전에 라이선스 스캐너로 훑는다.
-- 이 저장소의 라이선스가 아직 없다.
-- Talos 설치 ISO와 설치 이미지를 다시 묶어 배포한다(Talos는 MPL-2.0, Kata Containers 확장은 Apache-2.0). 우리 확장(`images/talos/setup`)에는 talosctl(MPL-2.0)과 BusyBox(GPL-2.0)가 들어 있다.
+- **GPL components** (Forgejo, Forgejo Runner, BusyBox, TigerVNC, Git, XFCE) are used as unmodified official binaries and images. For those that go into images we publish (Forgejo Runner, TigerVNC, Git, XFCE, BusyBox), check the source-offer obligation.
+- The npm dependencies of dsh have not been checked individually. Run a license scanner over them before distribution.
+- This repository has no license yet.
+- The Talos install ISO and installer image are repackaged and redistributed (Talos is MPL-2.0, the Kata Containers extension is Apache-2.0). Our extension (`images/talos/setup`) contains talosctl (MPL-2.0) and BusyBox (GPL-2.0).

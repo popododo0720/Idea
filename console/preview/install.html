@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>idea · 설치</title>
+<title>idea · Install</title>
 <link rel="stylesheet" href="../design/idea.css">
 </head>
 <body>
@@ -12,19 +12,19 @@
 
   <div class="stack">
     <div class="stack-sm">
-      <h1>설치할 디스크 선택</h1>
-      <p class="muted">선택한 디스크의 모든 데이터가 지워집니다. 두 번째 디스크가 있으면 작업 데이터 저장에 씁니다.</p>
+      <h1>Choose the install disk</h1>
+      <p class="muted">All data on the chosen disk is erased. If there is a second disk, it is used for work data.</p>
     </div>
 
     <form class="stack" method="post" action="/cgi-bin/install">
       <fieldset style="border:0;margin:0;padding:0">
-        <legend class="label">디스크</legend>
+        <legend class="label">Disk</legend>
         <label class="choice">
           <input type="radio" name="disk" value="/dev/sda" checked>
           <span class="choice-body">
             <span class="radio-dot"></span>
             <span class="grow">
-              <span class="row"><strong class="mono">/dev/sda</strong><span class="badge badge-warn">데이터 있음</span></span>
+              <span class="row"><strong class="mono">/dev/sda</strong><span class="badge badge-warn">has data</span></span>
               <span class="small muted">QEMU HARDDISK · 200 GB · SSD</span>
             </span>
           </span>
@@ -34,7 +34,7 @@
           <span class="choice-body">
             <span class="radio-dot"></span>
             <span class="grow">
-              <span class="row"><strong class="mono">/dev/sdb</strong><span class="badge">비어 있음</span></span>
+              <span class="row"><strong class="mono">/dev/sdb</strong><span class="badge">empty</span></span>
               <span class="small muted">QEMU HARDDISK · 500 GB · HDD</span>
             </span>
           </span>
@@ -42,19 +42,19 @@
       </fieldset>
 
       <div class="alert alert-bad">
-        <div><strong>/dev/sda</strong>의 기존 데이터가 모두 지워집니다. 되돌릴 수 없습니다.</div>
+        <div>All existing data on <strong>/dev/sda</strong> is erased. This cannot be undone.</div>
       </div>
 
       <div class="field">
-        <label class="label" for="confirm">확인을 위해 <code>/dev/sda</code> 를 입력하세요</label>
+        <label class="label" for="confirm">Type <code>/dev/sda</code> to confirm</label>
         <input class="input mono" id="confirm" name="confirm" autocomplete="off" spellcheck="false">
       </div>
 
-      <button class="btn btn-primary btn-block" type="submit">이 디스크에 설치</button>
+      <button class="btn btn-primary btn-block" type="submit">Install on this disk</button>
     </form>
 
     <dl class="kv small">
-      <dt>기기 주소</dt><dd><span class="val mono">192.168.1.50</span></dd>
+      <dt>Machine address</dt><dd><span class="val mono">192.168.1.50</span></dd>
       <dt>Talos</dt><dd><span class="val mono">v1.14.6</span></dd>
       <dt>idea</dt><dd><span class="val mono">0.2.0</span></dd>
     </dl>

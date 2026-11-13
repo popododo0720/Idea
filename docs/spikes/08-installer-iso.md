@@ -1,127 +1,127 @@
-# 단계 8: 설치 ISO
+# Stage 8: Install ISO
 
-작성일 2026-11-13. 계획서에 없던 단계다. 단계 0~7은 호스트 스크립트가 VM을 만들고 `talosctl`로 설정을 넣어 클러스터를 세웠다. 실제 목표는 그게 아니라 **ISO로 부팅하면 기기가 스스로 끝까지 가는 것**이어서, 그 경로를 만들고 호스트 스크립트 경로는 걷어냈다.
+Written 2026-11-13. A stage that was not in the plan. In stages 0–7, host scripts created the VM and fed the configuration with `talosctl` to stand up the cluster. The real goal is different: **boot from an ISO and the machine goes all the way by itself**. That path was built and the host-script path was removed.
 
-## 결론
+## Conclusion
 
-빈 기기를 ISO로 부팅하면 사람이 명령을 하나도 보내지 않아도 Talos 설치, 클러스터 부트스트랩, 전체 스택 구성이 끝난다. 사람이 하는 일은 기기 화면에 뜬 설정 코드로 설정 화면에 들어가 모델 키를 넣는 것 하나다.
+Booting an empty machine from the ISO completes the Talos install, the cluster bootstrap and the full stack configuration without a single command from a human. The only human action is entering the setup page with the setup code shown on the machine screen and providing the model keys.
 
-## 어떻게 되나
+## How it works
 
-Talos에는 "첫 부팅 때 스스로 설정을 만든다"는 기능이 없다. 설정에는 클러스터 인증서가 들어 있어야 하고, etcd 부트스트랩은 누군가 API를 한 번 불러 줘야 한다. 이 둘을 기기 안에서 대신 해 주는 Talos 시스템 확장을 만들었다(`images/talos/setup`).
+Talos has no "generate your own configuration on first boot" feature. The configuration must contain the cluster certificates, and someone has to call the API once to bootstrap etcd. A Talos system extension was made to do both inside the machine (`images/talos/setup`).
 
-| 시점 | 확장 서비스 | 하는 일 |
+| When | Extension service | What it does |
 | --- | --- | --- |
-| ISO로 부팅(설정 없음, 유지보수 모드) | `idea-setup` | 주소와 디스크를 찾고, 인증서를 새로 만들고, 머신 설정을 생성해 자기 자신의 유지보수 API에 적용한다. Talos가 디스크에 설치하고 재부팅한다. |
-| 설치된 시스템의 첫 부팅 | `idea-bootstrap` | 설정 안에 실려 온 관리자 접속 정보로 etcd 부트스트랩을 호출한다. |
-| 매 부팅 | `idea-bootstrap` | 설정 화면 주소와 설정 코드를 10분마다 콘솔에 찍는다. |
+| Boot from ISO (no config, maintenance mode) | `idea-setup` | Finds the address and disks, generates new certificates, generates the machine config and applies it to its own maintenance API. Talos installs to disk and reboots. |
+| First boot of the installed system | `idea-bootstrap` | Calls the etcd bootstrap with the admin credentials carried inside the config. |
+| Every boot | `idea-bootstrap` | Prints the setup page address and the setup code on the console every 10 minutes. |
 
-확인한 사실:
+Facts confirmed:
 
-- 확장 서비스는 유지보수 모드에서도 실행된다. 문서에 명시돼 있지 않아 직접 돌려 확인했다.
-- 유지보수 API(`--insecure`)는 기기 안에서 `127.0.0.1`로 부를 수 있다.
-- 설정을 적용하면 재부팅 없이 무인 설치가 시작되고, 설치가 끝나면 Talos가 스스로 재부팅한다.
-- ISO에 넣은 부분 설정(`--embedded-config-path`)의 `ExtensionServiceConfig`는 유지보수 모드에서도 서비스에 마운트된다. 단 서비스가 `depends: configuration: true`를 선언해야 한다.
+- Extension services run in maintenance mode too. The docs do not say so; it was confirmed by running it.
+- The maintenance API (`--insecure`) can be called at `127.0.0.1` from inside the machine.
+- Applying the config starts the unattended install without a reboot, and Talos reboots by itself when the install finishes.
+- The `ExtensionServiceConfig` from the partial config embedded in the ISO (`--embedded-config-path`) is mounted into the service in maintenance mode too. The service must declare `depends: configuration: true` though.
 
-설정에 들어가는 것 중 기기마다 달라지는 값:
+Values in the config that differ per machine:
 
-- **클러스터 주소**: 부팅 때 DHCP로 받은 주소.
-- **설치 디스크**: 16GB 이상인 고정 디스크가 하나뿐이고 비어 있으면 묻지 않고 거기에 설치한다. 디스크가 여럿이거나 무언가 들어 있으면 설치 화면(`http://<기기 주소>:8080/`)에서 사람이 고를 때까지 기다린다. 커널 인자 `idea.disk=/dev/xxx`를 주면 묻지 않는다.
-- **영구 볼륨 자리**: 설치 화면에서 데이터 디스크를 따로 고르면 그 디스크, 아니면 시스템 디스크의 디렉터리(`volumeType: directory`).
-- **주소**: DHCP로 받거나, DHCP가 없으면 콘솔의 Talos 네트워크 설정(F3)에서 넣는다. 주소가 생길 때까지 기다린다.
-- **인증서와 설정 코드**: 기기에서 생성. ISO에는 없다.
+- **Cluster address**: the address received by DHCP at boot.
+- **Install disk**: if there is exactly one fixed disk of 16GB or more and it is empty, it installs there without asking. With several disks, or anything on them, it waits for a human to choose on the install page (`http://<machine address>:8080/`). The kernel argument `idea.disk=/dev/xxx` skips the question.
+- **Persistent volume location**: if a separate data disk is chosen on the install page, that disk; otherwise a directory on the system disk (`volumeType: directory`).
+- **Address**: from DHCP, or without DHCP, entered in the Talos network settings on the console (F3). It waits until an address exists.
+- **Certificates and setup code**: generated on the machine. Not in the ISO.
 
-## 설치 후 사람이 들어오는 길
+## How a human gets in after the install
 
-공용 ISO로 설치한 기기는 관리자 접속 정보가 기기 안에서 만들어지므로 밖에서 `kubectl`을 쓸 방법이 없다. 그래서 컨트롤러에 설정 화면을 붙였다(`controller/setup.go`).
+On a machine installed from the public ISO, the admin credentials are created inside the machine, so there is no way to use `kubectl` from outside. So a setup page was added to the controller (`controller/setup.go`).
 
-- 주소는 `https://<기기 주소>:30443/` (NodePort, 시작할 때 만든 자체 서명 인증서). 인그레스는 호스트 이름으로만 응답해서, 주소만 아는 첫 접속에는 쓸 수 없다.
-- 기기 콘솔에 찍힌 설정 코드를 넣어야 열린다. 콘솔을 볼 수 있는 사람이 주인이라는 모델이다. 틀린 코드는 1초 늦게 거절한다.
-- 열리면 모델 키를 저장할 수 있고, Forgejo 관리자 계정이 보이고, `talosconfig`를 내려받을 수 있다.
-- 설정 코드와 `talosconfig`는 설치 때 확장이 머신 설정의 인라인 매니페스트로 심은 Secret(`kube-system/idea-setup`)에서 읽는다.
+- The address is `https://<machine address>:30443/` (NodePort, self-signed certificate created at start). The ingress only answers to the hostname, so it cannot serve the first visit where only the address is known.
+- It opens only with the setup code printed on the machine console. The model is: whoever can see the console is the owner. A wrong code is refused after a 1 second delay.
+- Once open, the model keys can be saved, the Forgejo admin account is shown, and `talosconfig` can be downloaded.
+- The setup code and `talosconfig` are read from the Secret (`kube-system/idea-setup`) that the extension planted at install time as an inline manifest in the machine config.
 
-## 공개 배포를 위해 바꾼 것
+## Changes for the public release
 
-- **이미지 이름**: 매니페스트가 `ghcr.io/popododo0720/idea-*`를 가리킨다. 개발 호스트의 노드는 `ghcr.io`를 로컬 레지스트리로 먼저 미러링하므로 같은 이름으로 로컬 빌드를 받는다.
-- **배포 묶음**: `deploy/clusters/public`은 `oci://ghcr.io/popododo0720/idea-deploy:stable`을 따라간다. `clusters/dev`는 로컬 레지스트리를 따라가고 개발용 포드(w1, idea-main)를 더한다. 나머지는 `clusters/base`로 같다.
-- **Chrome → Chromium**: Google Chrome은 재배포할 수 없다. 작업 이미지 0.6.0은 Debian의 Chromium을 쓴다. dsh 브라우저 제어가 그대로 되는 것을 확인했다.
-- **Claude Agent SDK**: 이미지에서 뺐다. Claude 토큰이 있는 작업 포드만 시작할 때 npm에서 플러그인을 받는다(실측 37초).
-- **인그레스 인증서**: IP SAN을 뺐다. 어차피 IP로는 HTTPS가 안 됐고, 기기 주소를 미리 알 수 없다.
+- **Image names**: the manifests point at `ghcr.io/popododo0720/idea-*`. The node on the dev host mirrors `ghcr.io` to the local registry first, so local builds are pulled under the same name.
+- **Deployment bundle**: `deploy/clusters/public` follows `oci://ghcr.io/popododo0720/idea-deploy:stable`. `clusters/dev` follows the local registry and adds the development pods (w1, idea-main). The rest is shared as `clusters/base`.
+- **Chrome → Chromium**: Google Chrome cannot be redistributed. Worker image 0.6.0 uses Debian's Chromium. dsh browser control was confirmed to work unchanged.
+- **Claude Agent SDK**: removed from the image. Only a worker pod that has a Claude token fetches the plugin from npm at start (measured 37 seconds).
+- **Ingress certificate**: the IP SAN was removed. HTTPS by IP never worked anyway, and the machine address cannot be known in advance.
 
-## 그 과정에서 찾은 문제
+## Problems found along the way
 
-- **`.gitignore`가 필요한 매니페스트 4개를 숨기고 있었다.** `worker.yaml`, `secrets.yaml`, `*-secret.yaml` 패턴에 걸린 파일들이 로컬 배포 묶음에는 들어가고 git에는 안 들어가서, 2026-11-13에 올린 깃허브 저장소는 그대로는 빌드되지 않았다. 값은 없는 정의 파일이었다. 이름을 바꿨고, `push-deploy.sh`가 숨겨진 파일이 있으면 멈추게 했다.
-- **끝나지 않는 확장 서비스는 부팅을 붙잡는다.** 설정을 영영 못 받는 서비스가 `Waiting`으로 남으면 Talos의 부팅 단계가 완료되지 않는다. 설치된 시스템에서는 그 서비스가 바로 끝나도록 표식을 준다.
-- **서비스 상태를 문자열로 찾다가 오판했다.** `talosctl service etcd` 출력의 "Running pre state"를 실행 중으로 읽어 부트스트랩을 건너뛰었다. `STATE` 줄만 본다.
-- **HDD에서 VM 둘이 같이 돌면 etcd가 시간 초과를 낸다.** 시험 VM은 디스크를 `cache=unsafe`로 붙인다. 이 조건에서 ISO 부팅부터 전체 구성 완료까지 약 10분이다.
+- **`.gitignore` was hiding 4 needed manifests.** Files caught by the `worker.yaml`, `secrets.yaml` and `*-secret.yaml` patterns went into the local deployment bundle but not into git, so the GitHub repository pushed on 2026-11-13 did not build as is. They were definition files with no values. They were renamed, and `push-deploy.sh` now stops if a hidden file exists.
+- **An extension service that never finishes holds up the boot.** If a service that can never receive its configuration stays `Waiting`, the Talos boot sequence does not complete. On the installed system a marker makes that service exit immediately.
+- **Searching service state by string led to a wrong call.** "Running pre state" in the `talosctl service etcd` output was read as running, and the bootstrap was skipped. Only the `STATE` line is read now.
+- **Two VMs running together on HDD make etcd time out.** The test VM attaches its disk with `cache=unsafe`. Under these conditions, ISO boot to full configuration takes about 10 minutes.
 
-## 시험
+## Test
 
-`scripts/iso-e2e.sh`가 주인이 하듯 시험한다. `talosctl`도 `kubectl`도 쓰지 않고, 기기가 보여 주는 것과 열어 주는 것만 쓴다.
+`scripts/iso-e2e.sh` tests the way an owner would. It uses neither `talosctl` nor `kubectl`, only what the machine shows and serves.
 
-2026-11-13 실행. 시험 VM은 메모리 16GB, 디스크 한 개(60GB), UEFI 부팅. ISO는 인증서를 기기에서 만드는 빌드(`build-iso.sh --dev`: 이미지와 배포 묶음만 로컬 레지스트리에서 받음).
+Run on 2026-11-13. Test VM with 16GB memory, one disk (60GB), UEFI boot. The ISO is the build that generates certificates on the machine (`build-iso.sh --dev`: only images and the deployment bundle come from the local registry).
 
-| 경과 | 일어난 일 |
+| Elapsed | What happened |
 | --- | --- |
-| 부팅 후 11초 | 확장이 설정을 만들어 적용 (콘솔: `generated new cluster secrets on this machine`, 시스템 디스크 `/dev/vda`, 데이터 디스크 없음) |
-| 부팅 후 20초 | 디스크 설치 완료, 재부팅 |
-| 재부팅 후 7초 | etcd 부트스트랩, 콘솔에 설정 화면 주소와 설정 코드 |
-| 그 뒤 약 4분 30초 | 설정 화면 응답 (컨트롤러까지 올라옴) |
-| +1초 | 틀린 설정 코드 거절 확인, 설정 화면으로 모델 키 입력, `talosconfig` 내려받기 확인 |
-| +6초 | 설정 화면에 나온 계정으로 Forgejo 로그인, 이슈 #1 작성 |
-| +4분 14초 | PR #2 머지 |
+| 11 s after boot | The extension generated and applied the config (console: `generated new cluster secrets on this machine`, system disk `/dev/vda`, no data disk) |
+| 20 s after boot | Disk install complete, reboot |
+| 7 s after reboot | etcd bootstrap, setup page address and setup code on the console |
+| About 4 min 30 s later | Setup page answers (controller is up) |
+| +1 s | Wrong setup code refused, model keys entered on the setup page, `talosconfig` download confirmed |
+| +6 s | Forgejo login with the account shown on the setup page, issue #1 created |
+| +4 min 14 s | PR #2 merged |
 
-설정 코드를 읽은 시점부터 머지까지 534초다. 이 숫자는 이미지를 같은 호스트의 로컬 레지스트리에서 받은 것이라, 인터넷에서 받으면 더 걸린다.
+From reading the setup code to the merge is 534 seconds. These numbers are with images pulled from the local registry on the same host; pulling from the internet takes longer.
 
-같은 날 따로 확인한 것:
+Checked separately on the same day:
 
-- 인증서를 ISO에 넣은 빌드(`--embed-secrets`), 디스크 두 개, BIOS 부팅: 부팅부터 Flux 구성 묶음 7개 전부 준비까지 605초, 이슈 → 머지 183초.
-- 기기 화면(VGA)의 Talos 대시보드 로그 창에 설정 화면 주소와 설정 코드가 보인다(`virsh screenshot`으로 확인).
-- Chromium으로 바꾼 작업 포드에서 dsh가 브라우저를 열어 페이지 제목과 UA를 읽어 왔다.
+- The build with certificates embedded in the ISO (`--embed-secrets`), two disks, BIOS boot: 605 seconds from boot to all 7 Flux bundles ready, issue → merge 183 seconds.
+- The setup page address and setup code are visible in the log pane of the Talos dashboard on the machine screen (VGA) (confirmed with `virsh screenshot`).
+- In the worker pod switched to Chromium, dsh opened the browser and read back the page title and UA.
 
-공개 뒤 확인(같은 날): 깃허브 릴리스 v0.1.0에서 `idea-0.1.0-amd64.iso`를 내려받아(체크섬 일치) 같은 시험을 돌렸다. 로컬 레지스트리 미러가 없는 빌드이고, 콘솔 로그에 로컬 레지스트리 접속은 0건이다. 이미지는 전부 ghcr.io 등 인터넷에서 받았다.
+Checked after publishing (same day): downloaded `idea-0.1.0-amd64.iso` from the GitHub release v0.1.0 (checksum matches) and ran the same test. This build has no local registry mirror, and the console log shows 0 connections to the local registry. All images came from the internet (ghcr.io and so on).
 
-| 경과 | 일어난 일 |
+| Elapsed | What happened |
 | --- | --- |
-| 147초 | 설치와 재부팅을 마치고 콘솔에 설정 화면 주소와 설정 코드 (설치 이미지를 ghcr.io에서 받음) |
-| 508초 | 설정 화면 응답 |
-| 509초 | 틀린 코드 거절, 모델 키 입력, `talosconfig` 내려받기 |
-| 516초 | Forgejo 로그인, 이슈 #1 작성 |
-| 849초 | PR #2 머지 |
+| 147 s | Install and reboot done, setup page address and setup code on the console (installer image pulled from ghcr.io) |
+| 508 s | Setup page answers |
+| 509 s | Wrong code refused, model keys entered, `talosconfig` downloaded |
+| 516 s | Forgejo login, issue #1 created |
+| 849 s | PR #2 merged |
 
-빈 VM 부팅부터 머지까지 약 14분이다(디스크 한 개, UEFI, 메모리 16GB, 디스크 캐시 `unsafe`).
+From empty VM boot to merge is about 14 minutes (one disk, UEFI, 16GB memory, disk cache `unsafe`).
 
-확인하지 못한 것:
+Not checked:
 
-- 실제 하드웨어. 전부 KVM 가상 머신(virtio 디스크와 네트워크)에서 했다.
-- 재부팅 뒤 동작, DHCP 주소가 바뀐 경우.
+- Real hardware. Everything was done on KVM virtual machines (virtio disk and network).
+- Behaviour after a reboot, and the case where the DHCP address changes.
 
-## 고정 주소와 디스크 선택 (v0.2.0)
+## Static address and disk choice (v0.2.0)
 
-**고정 주소는 Talos가 이미 해 준다.** DHCP가 없는 네트워크(`idea-static`)에서 v0.1.0 ISO를 그대로 부팅하고 콘솔에서 F3(Network Config)을 눌러 DNS, 인터페이스, Static, 주소, 게이트웨이를 넣고 Save 했다.
+**Talos already handles static addresses.** On a network without DHCP (`idea-static`), the v0.1.0 ISO was booted as is; on the console, F3 (Network Config) was used to enter DNS, interface, Static, address and gateway, then Save.
 
-- 저장하자마자 주소가 올라오고, 주소를 기다리던 확장이 설정을 만들어 설치를 시작했다.
-- Talos는 그 네트워크 설정을 META에 넣어 두었다가 설치 때 디스크의 META 파티션에 쓴다(콘솔: `META: saved 2 keys`). 재부팅 뒤에도 같은 주소로 올라왔다.
-- 그 기기에서 설정 화면, 모델 키 입력, 이슈 → 머지까지 통과했다(설정 화면 응답 306초, 머지 635초).
+- The address came up right after saving, and the extension that was waiting for an address generated the config and started the install.
+- Talos keeps that network setting in META and writes it to the META partition on the disk at install (console: `META: saved 2 keys`). After a reboot it came up with the same address.
+- On that machine, the setup page, model key entry and issue → merge all passed (setup page answered at 306 s, merge at 635 s).
 
-그래서 주소에 관해 우리가 만든 것은 없다. 확장은 주소가 생길 때까지 기다리며 콘솔에 F3을 누르라는 안내를 찍을 뿐이다. 부팅 옵션 `ip=`는 설치 뒤에 사라진다고 Talos 쪽에서 밝히고 있어 쓰지 않는다.
+So nothing of ours was built for addresses. The extension only waits for an address and prints a hint on the console to press F3. The boot option `ip=` is not used, since Talos states that it disappears after the install.
 
-**디스크 선택은 Talos에 화면이 없어서 만들었다.** 확장 안의 BusyBox `httpd`와 셸 CGI 하나다(`images/talos/setup/www`).
+**Disk choice was built because Talos has no screen for it.** It is BusyBox `httpd` inside the extension plus one shell CGI (`images/talos/setup/www`).
 
-- 설치 전, 설정이 없는 기기에서만 뜬다. 고르고 나면 닫힌다.
-- 디스크가 비었는지는 파티션 유무와 Talos가 알아본 서명(`discoveredvolumes`)으로 판단한다.
-- 제출 값은 후보 목록과 글자 그대로 비교한다. 목록에 없는 값과 확인 체크가 없는 제출은 거절된다.
-- 데이터 디스크로 고른 디스크에 내용이 있으면 유지보수 API의 `wipe disk`로 지운 뒤 쓴다(API가 유지보수 모드에서 되는 것만 확인했고, 내용 있는 디스크를 데이터용으로 고르는 경로는 돌리지 않았다).
+- It only appears before the install, on a machine with no config. It closes once a choice is made.
+- Whether a disk is empty is judged by the presence of partitions and the signatures Talos recognized (`discoveredvolumes`).
+- Submitted values are compared literally with the candidate list. Values not in the list, and submissions without the confirmation check, are refused.
+- If the disk chosen for data has content, it is wiped with the maintenance API's `wipe disk` before use (only confirmed that the API works in maintenance mode; the path of choosing a disk with content as the data disk was not exercised).
 
-시험: 디스크 2개(첫째에 GPT와 ext4, 둘째는 빈 것)인 VM. 콘솔에 설치 화면 주소가 뜨고 기다렸다. 화면에 `/dev/vda · 60 GB · 데이터 있음`, `/dev/vdb · 24 GB · 비어 있음`이 나왔다. 확인 없이 제출, 없는 디스크, 명령이 섞인 값은 거절됐다. vda를 시스템, vdb를 데이터로 고르자 설치가 진행됐다.
+Test: a VM with 2 disks (GPT and ext4 on the first, the second empty). The install page address appeared on the console and it waited. The page showed `/dev/vda · 60 GB · has data` and `/dev/vdb · 24 GB · empty`. Submitting without confirmation, a non-existent disk, and a value with a command mixed in were refused. Choosing vda as system and vdb as data started the install.
 
-그 기기에서 설정 화면 응답(306초), 모델 키 입력, 이슈 작성, PR 머지까지 통과했다.
+On that machine, the setup page answered (306 s), model key entry, issue creation and PR merge all passed.
 
-## 설계에 반영할 점
+## Points for the design
 
-- 설치 화면과 유지보수 API에는 인증이 없다. 설치 전의 기기는 같은 네트워크의 누구나 설치를 시작시킬 수 있다(Talos 유지보수 모드가 원래 그렇다).
-- Talos가 이미 설치된 디스크가 있으면 ISO는 멈춘다(`talos.halt_if_installed`). 재설치하려면 디스크를 먼저 지워야 한다.
-- 기기 주소가 DHCP로 바뀌면 인증서의 주소와 어긋난다. 주소를 고정해야 하는 환경에서는 콘솔 F3으로 넣는다.
-- 설정 코드는 바뀌지 않는다. 유출되면 재설치 말고는 바꿀 방법이 없다.
-- 설치된 기기는 `stable` 태그를 따라가므로, 잘못된 릴리스를 올리면 모든 기기에 퍼진다. 릴리스 전 시험과 되돌리기 절차가 필요하다.
-- 한 대 구성뿐이다. 노드를 더 붙이는 길은 만들지 않았다.
+- The install page and the maintenance API have no authentication. Before the install, anyone on the same network can start an install (that is how Talos maintenance mode works).
+- If a disk already has Talos installed, the ISO halts (`talos.halt_if_installed`). To reinstall, wipe the disk first.
+- If the machine address changes through DHCP, it no longer matches the address in the certificate. In environments where the address must be fixed, enter it with F3 on the console.
+- The setup code never changes. If it leaks, the only way to change it is a reinstall.
+- Installed machines follow the `stable` tag, so a bad release spreads to every machine. Pre-release testing and a rollback procedure are needed.
+- Single-machine layout only. No path for adding nodes was built.
