@@ -6,6 +6,9 @@ WORKDIR /src
 COPY controller/go.mod controller/go.sum ./
 RUN go mod download
 COPY controller/*.go ./
+# The setup page's design system (go:embed design).
+COPY console/design/idea.css ./design/
+COPY console/design/fonts/ ./design/fonts/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/idea-controller .
 
 FROM docker.io/library/debian:${DEBIAN_TAG}

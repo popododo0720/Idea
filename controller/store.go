@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -57,4 +58,31 @@ func (s *Store) Event(ctx context.Context, task, phase, message string) {
 	// History is best effort: a failed insert must not stall a task.
 	_, _ = s.pool.Exec(ctx,
 		`INSERT INTO task_events (task, phase, message) VALUES ($1, $2, $3)`, task, phase, message)
+}
+
+type Event struct {
+	Phase   string    `json:"phase"`
+	Message string    `json:"message"`
+	At      time.Time `json:"at"`
+}
+
+// Events returns a task's history, oldest first (at most limit entries, the latest ones).
+func (s *Store) Events(ctx context.Context, task string, limit int) ([]Event, error) {
+	rows, err := s.pool.Query(ctx, `
+SELECT phase, message, at FROM (
+  SELECT id, phase, message, at FROM task_events WHERE task = $1 ORDER BY id DESC LIMIT $2
+) e ORDER BY id`, task, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Event{}
+	for rows.Next() {
+		var e Event
+		if err := rows.Scan(&e.Phase, &e.Message, &e.At); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }

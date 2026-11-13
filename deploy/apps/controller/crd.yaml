@@ -74,3 +74,60 @@ spec:
                   type: string
                 headSHA:
                   type: string
+---
+# Project: one repository idea works on (Forgejo organisation "idea", the
+# repository has the project's name). Issues in it become Tasks.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: projects.idea.dev
+spec:
+  group: idea.dev
+  scope: Namespaced
+  names:
+    kind: Project
+    plural: projects
+    singular: project
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Ready
+          type: boolean
+          jsonPath: .status.ready
+        - name: Message
+          type: string
+          jsonPath: .status.message
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            metadata:
+              type: object
+              properties:
+                name:
+                  type: string
+                  pattern: '^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$'
+            spec:
+              type: object
+              properties:
+                description:
+                  type: string
+                  maxLength: 500
+                seed:
+                  description: Example repository to start from (a directory under examples/), used once while the repository is empty.
+                  type: string
+                  pattern: '^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$'
+            status:
+              type: object
+              properties:
+                ready:
+                  type: boolean
+                message:
+                  type: string

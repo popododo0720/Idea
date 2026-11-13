@@ -25,14 +25,15 @@ spec:
           type: RuntimeDefault
       containers:
         - name: controller
-          image: ghcr.io/popododo0720/idea-controller:0.2.0
+          image: ghcr.io/popododo0720/idea-controller:0.3.0
           env:
             - name: FORGEJO_URL
               value: http://forgejo-http:3000
             - name: FORGEJO_ORG
               value: idea
-            - name: FORGEJO_REPO
-              value: hello-calc
+            # The name the machine answers to (install page; Flux substitutes it).
+            - name: IDEA_HOST
+              value: ${IDEA_HOST:=idea.internal}
             - name: WORKER_IMAGE
               value: ghcr.io/popododo0720/idea-worker:0.6.0
             - name: MAIN_IMAGE

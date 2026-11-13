@@ -1,0 +1,5 @@
+# Loaded when the bundle is in a profile (dsh plugin add). The host half
+# needs dsh's web server, so it runs in the desktop app and `dsh web`.
+- insert:
+    - id: idea
+      name: "@popododo0720/dsh-idea"

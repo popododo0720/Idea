@@ -43,9 +43,10 @@ type Config struct {
 	AdminPass     string
 	WebhookSecret string
 	WebhookTarget string // URL Forgejo calls for issue events
-	Org           string
-	Repo          string
-	SeedDir       string
+	Org           string // Forgejo organisation holding every project's repository
+	ExamplesDir   string // example repositories a project can be seeded from
+	Host          string // name the machine answers to (install page, IDEA_HOST)
+	PluginSource  string // how dsh installs the idea plugin (shown on the setup page)
 	SystemNS      string
 	WorkNS        string
 	WorkerImage   string
@@ -89,8 +90,9 @@ func loadConfig() Config {
 		WebhookSecret: mustEnv("WEBHOOK_SECRET"),
 		WebhookTarget: env("WEBHOOK_TARGET", "http://idea-controller.idea-system.svc:8080/webhook/forgejo"),
 		Org:           env("FORGEJO_ORG", "idea"),
-		Repo:          env("FORGEJO_REPO", "hello-calc"),
-		SeedDir:       env("SEED_DIR", "/opt/idea/examples/hello-calc"),
+		ExamplesDir:   env("EXAMPLES_DIR", "/opt/idea/examples"),
+		Host:          env("IDEA_HOST", "idea.internal"),
+		PluginSource:  env("PLUGIN_SOURCE", "github:popododo0720/Idea#path:/plugins/idea"),
 		SystemNS:      env("SYSTEM_NAMESPACE", "idea-system"),
 		WorkNS:        env("WORK_NAMESPACE", "idea-work"),
 		WorkerImage:   mustEnv("WORKER_IMAGE"),
@@ -164,7 +166,7 @@ func main() {
 	}()
 
 	// Setup page for the owner (HTTPS, NodePort): see setup.go.
-	setup, err := c.setupServer()
+	setup, err := c.setupServer(ctx)
 	if err != nil {
 		slog.Error("setup server", "err", err)
 		os.Exit(1)
@@ -180,7 +182,7 @@ func main() {
 	go c.loop(ctx, "issue-sweep", 60*time.Second, c.sweepIssues)
 	go c.loop(ctx, "tasks", 5*time.Second, c.reconcileTasks)
 
-	slog.Info("controller started", "repo", cfg.Org+"/"+cfg.Repo, "gate", cfg.GateMode)
+	slog.Info("controller started", "org", cfg.Org, "host", cfg.Host, "gate", cfg.GateMode)
 	<-ctx.Done()
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -247,8 +249,18 @@ func (c *Controller) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad payload", http.StatusBadRequest)
 		return
 	}
-	if ev.Action != "opened" || ev.Repository.FullName != c.cfg.Org+"/"+c.cfg.Repo {
+	if ev.Action != "opened" {
 		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	p, err := c.projectForRepo(r.Context(), ev.Repository.FullName)
+	if err != nil {
+		slog.Error("webhook project lookup", "err", err)
+		http.Error(w, "try again", http.StatusServiceUnavailable)
+		return
+	}
+	if p == nil {
+		w.WriteHeader(http.StatusNoContent) // not a project's repository
 		return
 	}
 	if err := c.createTask(r.Context(), ev.Repository.FullName, ev.Issue.Number, ev.Issue.Title, ev.Issue.Body, "webhook"); err != nil {
@@ -262,21 +274,26 @@ func (c *Controller) handleWebhook(w http.ResponseWriter, r *http.Request) {
 // sweepIssues picks up open issues that have no Task yet (for example because
 // the webhook fired while the controller was down).
 func (c *Controller) sweepIssues(ctx context.Context) error {
-	repo := c.cfg.Org + "/" + c.cfg.Repo
-	var issues []struct {
-		Number int64  `json:"number"`
-		Title  string `json:"title"`
-		Body   string `json:"body"`
-	}
-	if err := c.fj.do(ctx, "GET", "/repos/"+repo+"/issues?state=open&type=issues&limit=50", nil, &issues); err != nil {
-		if isStatus(err, 404) {
-			return nil // repository not created yet
-		}
+	projects, err := c.listProjects(ctx)
+	if err != nil {
 		return err
 	}
-	for _, is := range issues {
-		if err := c.createTask(ctx, repo, is.Number, is.Title, is.Body, "sweep"); err != nil {
+	for _, p := range projects {
+		var issues []struct {
+			Number int64  `json:"number"`
+			Title  string `json:"title"`
+			Body   string `json:"body"`
+		}
+		if err := c.fj.do(ctx, "GET", "/repos/"+p.Repo+"/issues?state=open&type=issues&limit=50", nil, &issues); err != nil {
+			if isStatus(err, 404) {
+				continue // repository not created yet
+			}
 			return err
+		}
+		for _, is := range issues {
+			if err := c.createTask(ctx, p.Repo, is.Number, is.Title, is.Body, "sweep"); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -291,29 +308,16 @@ const (
 )
 
 // reconcileForgejo keeps the state inside Forgejo as declared: organisation,
-// repository (seeded once), the worker's account and token, the webhook and
-// the Actions runner registration token. Anything deleted by hand comes back.
+// the worker's account and token, the Actions runner registration token, and
+// for every project its repository, webhook and the worker's access.
+// Anything deleted by hand comes back.
 func (c *Controller) reconcileForgejo(ctx context.Context) error {
 	if err := c.fj.Ready(ctx); err != nil {
 		return fmt.Errorf("forgejo not ready: %w", err)
 	}
-	org, name := c.cfg.Org, c.cfg.Repo
+	org := c.cfg.Org
 	if err := c.fj.EnsureOrg(ctx, org); err != nil {
 		return fmt.Errorf("org: %w", err)
-	}
-	repo, err := c.fj.EnsureRepo(ctx, org, name)
-	if err != nil {
-		return fmt.Errorf("repo: %w", err)
-	}
-	if repo.Empty {
-		files, err := readSeed(c.cfg.SeedDir)
-		if err != nil {
-			return fmt.Errorf("seed files: %w", err)
-		}
-		if err := c.fj.Seed(ctx, org, name, files); err != nil {
-			return fmt.Errorf("seed: %w", err)
-		}
-		slog.Info("repository seeded", "repo", org+"/"+name, "files", len(files))
 	}
 
 	// Worker account and its token. The token cannot be read back from
@@ -340,18 +344,6 @@ func (c *Controller) reconcileForgejo(ctx context.Context) error {
 	} else if err != nil {
 		return err
 	}
-	if err := c.fj.EnsureCollaborator(ctx, org, name, workerUser); err != nil {
-		return fmt.Errorf("collaborator: %w", err)
-	}
-
-	created, err := c.fj.EnsureWebhook(ctx, org, name, c.cfg.WebhookTarget, c.cfg.WebhookSecret)
-	if err != nil {
-		return fmt.Errorf("webhook: %w", err)
-	}
-	if created {
-		slog.Info("webhook created", "repo", org+"/"+name)
-	}
-
 	if c.cfg.GateMode == "actions" {
 		if _, err := secrets.Get(ctx, runnerTokenSecret, metav1.GetOptions{}); apierrors.IsNotFound(err) {
 			token, err := c.fj.RunnerToken(ctx)
@@ -367,6 +359,19 @@ func (c *Controller) reconcileForgejo(ctx context.Context) error {
 			}
 			slog.Info("runner registration token issued")
 		}
+	}
+
+	projects, err := c.listProjects(ctx)
+	if err != nil {
+		return fmt.Errorf("projects: %w", err)
+	}
+	for _, p := range projects {
+		if err := c.reconcileProject(ctx, p); err != nil {
+			slog.Warn("project", "project", p.Name, "err", err.Error())
+			c.setProjectStatus(ctx, p, false, err.Error())
+			continue
+		}
+		c.setProjectStatus(ctx, p, true, "")
 	}
 	return nil
 }

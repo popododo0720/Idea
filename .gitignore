@@ -18,3 +18,6 @@ _out/
 *.iso
 *.qcow2
 *.raw
+
+# Copied in by controller/Dockerfile (go:embed)
+controller/design/

@@ -1,5 +1,6 @@
-// Setup page: how the owner of a machine installed from the ISO hands over
-// the model keys and gets the logins, without kubectl.
+// Setup page: the first page the owner of a machine installed from the ISO
+// opens. It tells how to connect DeepSeek Harness (the idea plugin, where all
+// the work is done) and hands out the logins, without kubectl.
 //
 // The machine generates a setup code when it configures itself (see
 // images/talos/setup) and shows it on its own console. Whoever can read the
@@ -17,9 +18,13 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"embed"
+	"encoding/pem"
 	"html/template"
+	"io/fs"
 	"log/slog"
 	"math/big"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -33,7 +38,14 @@ const (
 	setupSecretNS   = "kube-system"
 	setupSecretName = "idea-setup"
 	modelKeysSecret = "idea-model-keys"
+	apiCertSecret   = "idea-api-tls"
 )
+
+// The design system (console/design), copied next to the sources by the
+// Dockerfile.
+//
+//go:embed design
+var designFS embed.FS
 
 // setupSecret reads what the machine planted for us: the setup code and the
 // Talos admin configuration. Missing on clusters that were not installed
@@ -63,11 +75,6 @@ func (c *Controller) checkCode(ctx context.Context, given string) (talosconfig s
 		return "", false, nil
 	}
 	return tc, true, nil
-}
-
-func (c *Controller) hasModelKey(ctx context.Context) bool {
-	s, err := c.kube.CoreV1().Secrets(c.cfg.WorkNS).Get(ctx, modelKeysSecret, metav1.GetOptions{})
-	return err == nil && len(s.Data["DEEPSEEK_API_KEY"]) > 0
 }
 
 // saveModelKeys writes the keys to both namespaces that use them. An empty
@@ -117,94 +124,78 @@ type setupView struct {
 	Unlocked  bool   // a correct code was submitted with this request
 	Code      string // echoed back into the forms of an unlocked page
 	Error     string
-	Notice    string
-	HasKey    bool
 	AdminUser string
 	AdminPass string
-	Host      string // address the browser used, without the port
-	Repo      string
+	Addr      string // address the browser used, with the port
+	Host      string // name the machine answers to (IDEA_HOST)
+	IP        string // address the browser used, without the port
 	HasTalos  bool
+	Plugin    string // what to give `dsh plugin add`
 }
 
 var setupPage = template.Must(template.New("setup").Parse(`<!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>idea 설정</title>
-<style>
-:root { color-scheme: light dark; --fg:#1b1f24; --bg:#f6f7f9; --card:#fff; --line:#d5d9df; --accent:#1f6feb; --bad:#b42318; --ok:#1a7f37; }
-@media (prefers-color-scheme: dark) { :root { --fg:#e6e8eb; --bg:#111418; --card:#1a1e24; --line:#30363d; --accent:#58a6ff; --bad:#ff7b72; --ok:#3fb950; } }
-body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 system-ui, sans-serif; }
-main { max-width:640px; margin:0 auto; padding:32px 16px 64px; }
-h1 { font-size:22px; margin:0 0 4px; } h2 { font-size:17px; margin:0 0 12px; }
-section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:20px; margin-top:16px; }
-label { display:block; font-weight:600; margin-top:12px; } .hint { color:#6b7280; font-size:14px; margin:2px 0 0; }
-input { width:100%; box-sizing:border-box; padding:10px; margin-top:6px; border:1px solid var(--line); border-radius:6px; background:transparent; color:inherit; font:inherit; }
-button { margin-top:16px; padding:10px 18px; border:0; border-radius:6px; background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
-code, .mono { font-family:ui-monospace, monospace; word-break:break-all; }
-.err { color:var(--bad); font-weight:600; } .ok { color:var(--ok); font-weight:600; }
-dl { display:grid; grid-template-columns:max-content 1fr; gap:6px 16px; margin:0; } dt { color:#6b7280; } dd { margin:0; }
-</style></head><body><main>
-<h1>idea 설정</h1>
-<p class="hint">이슈를 쓰면 에이전트가 코드를 고쳐 PR을 올리고, 테스트를 통과하면 머지합니다.</p>
-{{if .Error}}<p class="err">{{.Error}}</p>{{end}}
-{{if .Notice}}<p class="ok">{{.Notice}}</p>{{end}}
-
+<link rel="stylesheet" href="/design/idea.css">
+</head><body>
+<main class="page-narrow" style="max-width:560px">
+<div class="brand" style="margin-bottom:32px"><span class="brand-mark">i</span>idea</div>
+<div class="stack">
+{{if .Error}}<div class="alert alert-bad"><div>{{.Error}}</div></div>{{end}}
 {{if not .Available}}
-<section><h2>설정 코드가 없습니다</h2>
-<p>이 클러스터는 설치 ISO로 만들어지지 않아 설정 코드가 없습니다. 모델 키는 클러스터 관리자가 <code>idea-model-keys</code> Secret으로 넣어야 합니다.</p></section>
+<div class="stack-sm"><h1>설정 코드가 없습니다</h1>
+<p class="muted">이 기기는 설치 ISO로 만들어지지 않았습니다. 클러스터 관리자가 직접 설정해야 합니다.</p></div>
 {{else if not .Unlocked}}
-<section><h2>설정 코드 입력</h2>
-<p>설치한 기기의 화면(콘솔)에 표시된 설정 코드를 입력하세요.</p>
-<form method="post" action="/">
-<label for="code">설정 코드</label>
-<input id="code" name="code" autocomplete="off" autofocus required>
-<button type="submit">확인</button>
-</form></section>
+<div class="stack-sm"><h1>설정 코드 입력</h1>
+<p class="muted">기기 콘솔 화면의 <span class="mono">setup code</span> 줄에 있는 12자리 코드입니다.</p></div>
+<form class="stack" method="post" action="/">
+<div class="field"><label class="label" for="code">설정 코드</label>
+<input class="input code-input" id="code" name="code" placeholder="xxxx-xxxx-xxxx" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" autofocus required></div>
+<button class="btn btn-primary btn-block" type="submit">계속</button>
+</form>
 {{else}}
-<section><h2>모델 키</h2>
-<p>상태: {{if .HasKey}}<span class="ok">DeepSeek 키가 들어 있습니다</span>{{else}}<span class="err">DeepSeek 키가 없습니다. 넣어야 에이전트가 일합니다.</span>{{end}}</p>
-<form method="post" action="/keys">
-<input type="hidden" name="code" value="{{.Code}}">
-<label for="deepseek">DeepSeek API 키</label>
-<input id="deepseek" name="deepseek" type="password" autocomplete="off">
-<label for="claude">Claude Code 토큰 (선택)</label>
-<input id="claude" name="claude" type="password" autocomplete="off">
-<p class="hint">비워 둔 칸은 지금 값을 그대로 둡니다. 키는 이 기기 안에만 저장됩니다.</p>
-<button type="submit">저장</button>
-</form></section>
+<div class="stack-sm"><h1>dsh에 연결하기</h1>
+<p class="muted">작업, 세션, 프로젝트, 모델 키는 모두 DeepSeek Harness의 idea 패널에서 다룹니다. 쓰는 PC마다 한 번 연결하면 됩니다.</p></div>
+<ol class="steps">
+<li class="now"><div class="stack-sm"><strong>플러그인 설치</strong>
+<div class="copy"><span class="mono">dsh plugin add {{.Plugin}}</span></div></div></li>
+<li class="todo"><div class="stack-sm"><strong>idea 패널에서 이 기기 연결</strong>
+<dl class="kv"><dt>주소</dt><dd class="mono">https://{{.Addr}}</dd><dt>설정 코드</dt><dd class="mono">{{.Code}}</dd></dl></div></li>
+</ol>
 
-<section><h2>사용하기</h2>
-<dl>
-<dt>주소</dt><dd><code>https://idea.internal/git/</code></dd>
+<div class="card"><div class="card-head"><h2>Git (Forgejo)</h2></div><div class="card-body">
+<dl class="kv">
+<dt>주소</dt><dd class="mono">https://{{.Host}}/git/</dd>
 <dt>계정</dt><dd class="mono">{{.AdminUser}}</dd>
 <dt>비밀번호</dt><dd class="mono">{{.AdminPass}}</dd>
-<dt>저장소</dt><dd class="mono">{{.Repo}}</dd>
 </dl>
-<p class="hint">접속하는 PC의 hosts 파일에 <code>{{.Host}} idea.internal</code> 한 줄을 넣어야 합니다. 인증서는 자체 서명이라 브라우저 경고가 뜹니다. 저장소에 이슈를 쓰면 작업이 시작됩니다.</p>
-</section>
+<p class="hint">DNS나 hosts 파일에서 <span class="mono">{{.Host}}</span>을 <span class="mono">{{.IP}}</span>로 연결하세요. 인증서는 이 기기가 직접 만든 것이라 브라우저가 경고합니다.</p>
+</div></div>
 
 {{if .HasTalos}}
-<section><h2>관리자 접근</h2>
-<p>기기(Talos)와 Kubernetes를 직접 다루려면 관리자 설정 파일을 받으세요. 이 파일은 기기의 모든 권한입니다.</p>
-<form method="post" action="/talosconfig">
-<input type="hidden" name="code" value="{{.Code}}">
-<button type="submit">talosconfig 내려받기</button>
-</form>
-<p class="hint"><code>talosctl --talosconfig talosconfig -e {{.Host}} -n {{.Host}} kubeconfig</code></p>
-</section>
+<div class="card"><div class="card-head"><h2>관리자 접근</h2></div><div class="card-body stack-sm">
+<p class="small muted">기기(Talos)와 Kubernetes를 직접 다루는 설정 파일입니다. 이 파일은 기기의 모든 권한입니다.</p>
+<form method="post" action="/talosconfig"><input type="hidden" name="code" value="{{.Code}}">
+<button class="btn" type="submit">talosconfig 내려받기</button></form>
+<p class="xs subtle mono">talosctl --talosconfig talosconfig -e {{.IP}} -n {{.IP}} kubeconfig</p>
+</div></div>
 {{end}}
 {{end}}
+</div>
 </main></body></html>`))
 
 func (c *Controller) renderSetup(w http.ResponseWriter, r *http.Request, v setupView) {
-	host := r.Host
-	if i := strings.LastIndex(host, ":"); i > 0 {
-		host = host[:i]
+	v.Addr = r.Host
+	v.IP = r.Host
+	if h, _, err := net.SplitHostPort(r.Host); err == nil {
+		v.IP = h
 	}
-	v.Host = host
-	v.Repo = c.cfg.Org + "/" + c.cfg.Repo
+	v.Host = c.cfg.Host
+	v.Plugin = c.cfg.PluginSource
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'")
 	if err := setupPage.Execute(w, v); err != nil {
 		slog.Warn("setup page", "err", err.Error())
 	}
@@ -231,15 +222,17 @@ func (c *Controller) unlock(w http.ResponseWriter, r *http.Request) (setupView, 
 		return v, "", false
 	}
 	v.Unlocked = true
-	v.Code = code
+	v.Code = strings.TrimSpace(code)
 	v.AdminUser, v.AdminPass = c.cfg.AdminUser, c.cfg.AdminPass
 	v.HasTalos = tc != ""
-	v.HasKey = c.hasModelKey(ctx)
 	return v, tc, true
 }
 
 func (c *Controller) setupHandler() http.Handler {
 	mux := http.NewServeMux()
+	mux.Handle("/api/v1/", c.apiHandler())
+	design, _ := fs.Sub(designFS, "design")
+	mux.Handle("GET /design/", http.StripPrefix("/design/", http.FileServerFS(design)))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
@@ -253,29 +246,6 @@ func (c *Controller) setupHandler() http.Handler {
 		if v, _, ok := c.unlock(w, r); ok {
 			c.renderSetup(w, r, v)
 		}
-	})
-	mux.HandleFunc("/keys", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
-			return
-		}
-		v, _, ok := c.unlock(w, r)
-		if !ok {
-			return
-		}
-		deepseek := strings.TrimSpace(r.PostFormValue("deepseek"))
-		claude := strings.TrimSpace(r.PostFormValue("claude"))
-		if deepseek == "" && claude == "" {
-			v.Error = "저장할 값이 없습니다."
-		} else if err := c.saveModelKeys(r.Context(), deepseek, claude); err != nil {
-			slog.Warn("save model keys", "err", err.Error())
-			v.Error = "키를 저장하지 못했습니다."
-		} else {
-			slog.Info("model keys saved from the setup page")
-			v.Notice = "저장했습니다. 다음 작업부터 적용됩니다."
-			v.HasKey = c.hasModelKey(r.Context())
-		}
-		c.renderSetup(w, r, v)
 	})
 	mux.HandleFunc("/talosconfig", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -294,37 +264,71 @@ func (c *Controller) setupHandler() http.Handler {
 	return http.MaxBytesHandler(mux, 64<<10)
 }
 
-// selfSignedCert makes a certificate for the setup page. Nothing can vouch
-// for a machine that was just installed, so the browser will warn; the
-// connection is still encrypted, which is what the keys need.
-func selfSignedCert() (tls.Certificate, error) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+// apiCertificate returns the certificate of the setup page and the API. It
+// is made once and kept in a Secret: the dsh plugin pins it when pairing, so
+// it must not change when the controller restarts. Nothing can vouch for a
+// machine that was just installed, so browsers warn; the connection is still
+// encrypted, and the plugin checks it is talking to the machine it paired with.
+func (c *Controller) apiCertificate(ctx context.Context) (tls.Certificate, error) {
+	api := c.kube.CoreV1().Secrets(c.cfg.SystemNS)
+	s, err := api.Get(ctx, apiCertSecret, metav1.GetOptions{})
+	if err == nil {
+		return tls.X509KeyPair(s.Data[corev1.TLSCertKey], s.Data[corev1.TLSPrivateKeyKey])
+	}
+	if !apierrors.IsNotFound(err) {
+		return tls.Certificate{}, err
+	}
+	certPEM, keyPEM, err := selfSignedCert(c.cfg.Host)
 	if err != nil {
 		return tls.Certificate{}, err
+	}
+	_, err = api.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: apiCertSecret, Labels: managedLabels()},
+		Type:       corev1.SecretTypeTLS,
+		Data:       map[string][]byte{corev1.TLSCertKey: certPEM, corev1.TLSPrivateKeyKey: keyPEM},
+	}, metav1.CreateOptions{})
+	if apierrors.IsAlreadyExists(err) {
+		return c.apiCertificate(ctx) // another replica made it first
+	}
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	return tls.X509KeyPair(certPEM, keyPEM)
+}
+
+func selfSignedCert(host string) (certPEM, keyPEM []byte, err error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, err
 	}
 	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 120))
 	if err != nil {
-		return tls.Certificate{}, err
+		return nil, nil, err
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: "idea setup"},
-		DNSNames:              []string{"idea.internal"},
+		Subject:               pkix.Name{CommonName: "idea"},
+		DNSNames:              []string{host},
 		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().AddDate(5, 0, 0),
+		NotAfter:              time.Now().AddDate(10, 0, 0),
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
-		return tls.Certificate{}, err
+		return nil, nil, err
 	}
-	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, nil
+	kd, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: kd}), nil
 }
 
-func (c *Controller) setupServer() (*http.Server, error) {
-	cert, err := selfSignedCert()
+func (c *Controller) setupServer(ctx context.Context) (*http.Server, error) {
+	cert, err := c.apiCertificate(ctx)
 	if err != nil {
 		return nil, err
 	}

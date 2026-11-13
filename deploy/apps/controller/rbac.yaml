@@ -12,21 +12,28 @@ metadata:
   namespace: idea-system
 rules:
   - apiGroups: ["idea.dev"]
-    resources: ["tasks", "tasks/status"]
+    resources: ["tasks", "tasks/status", "projects", "projects/status"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
+  # The main agent's log, shown in the dsh panel.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["get", "list", "create", "delete"]
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "create", "delete"]
-  # Model keys entered on the setup page.
+  # Model keys (from the dsh panel), paired devices, the API certificate.
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["create"]
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["idea-model-keys"]
+    resourceNames: ["idea-model-keys", "idea-devices", "idea-api-tls"]
     verbs: ["get", "update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

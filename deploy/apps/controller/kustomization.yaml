@@ -6,3 +6,4 @@ resources:
   - rbac.yaml
   - webhook-password.yaml
   - controller.yaml
+  - example-project.yaml
