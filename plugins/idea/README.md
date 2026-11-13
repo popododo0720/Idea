@@ -17,6 +17,10 @@ Restart dsh, open **idea** in the sidebar, and enter the machine's address
 (`https://<machine>:30443`) and the setup code shown on its console. That pairs
 this dsh once; the code is not needed again.
 
+Set up models (DeepSeek key, Claude, other providers) in this dsh's own
+**Settings → Models**. The plugin copies them to the machine, so the agents
+there use the same models without entering keys twice.
+
 ## How it works
 
 ```
@@ -34,6 +38,13 @@ idea panel          ──/idea/*──▶ this plugin ──HTTPS, pinned──
   API for a login (`GET /api/v1/dsh`), keeps that cookie itself, rewrites Host
   and Origin, and pipes WebSockets. It only answers a browser that entered
   through a one-time ticket handed to the panel.
+- `lib/model-sync.js` copies the models set up in this dsh to the machine's
+  dsh: the `llm-deepseek` and `llm-pi-ai` settings sections (DeepSeek, Claude
+  and any other provider the Models page adds) and the keys they reference.
+  It writes through the machine dsh's own Remote API (`settings/replace`,
+  `credentials/set`), at start, after pairing and whenever a model setting or
+  key changes here. It only adds and overwrites; nothing set on the machine
+  itself is removed.
 - The pairing (address, certificate, token) is kept in `$DSH_HOME/idea/pairing.json`
   with mode 600. Disconnecting revokes the token on the machine and deletes the file.
 

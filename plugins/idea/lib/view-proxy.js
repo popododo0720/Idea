@@ -222,6 +222,38 @@ export function createViewProxy({ upstream, log = () => {} }) {
       tickets.set(t, Date.now() + TICKET_TTL_MS)
       return `http://127.0.0.1:${port}/__idea/enter?t=${t}`
     },
+    /**
+     * Call one Remote API method of the machine's dsh with this proxy's login
+     * (`POST /api/<ns>/<method>`, args by parameter name). Errors carry only
+     * the method and the remote error code, never the request.
+     */
+    async rpc(method, args) {
+      for (let attempt = 0; ; attempt++) {
+        if (!target || !jar) await login()
+        const body = JSON.stringify({ type: 'client-request', rpcId: 'idea-' + randomBytes(6).toString('hex'), method, payload: { args } })
+        const req = await send('POST', new URL('/api/' + method, target.url), {
+          host: target.authority, origin: target.origin, cookie: jar,
+          'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)),
+        })
+        const { status, text } = await new Promise((resolve, reject) => {
+          req.on('response', r => {
+            absorbCookies(r.headers['set-cookie'])
+            let d = ''
+            r.setEncoding('utf8')
+            r.on('data', c => { if (d.length < 1 << 20) d += c })
+            r.on('end', () => resolve({ status: r.statusCode, text: d }))
+          })
+          req.on('error', reject)
+          req.end(body)
+        })
+        if (status === 401 && attempt === 0) { jar = ''; continue }
+        if (status !== 200) throw new Error(`idea: machine dsh ${method}: HTTP ${status}`)
+        let result
+        try { result = JSON.parse(text).result } catch { /* below */ }
+        if (!result || !result.ok) throw new Error(`idea: machine dsh ${method}: ${(result && result.error && result.error.code) || 'bad response'}`)
+        return result.value
+      }
+    },
     /** Forget the upstream session (unpair). */
     reset() { jar = ''; target = undefined },
     close() { if (server) server.close(); server = undefined },

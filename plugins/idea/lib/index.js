@@ -21,6 +21,7 @@ import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { createViewProxy } from './view-proxy.js'
 import { pinnedSocket, portOf } from './tls-pin.js'
+import { createModelSync } from './model-sync.js'
 
 export const name = 'idea'
 export const inject = ['webServer', 'connection']
@@ -170,6 +171,14 @@ export function apply(ctx) {
   })
   ctx.effect(() => () => view.close(), 'idea: view proxy')
 
+  // Models and keys set up in this dsh follow to the machine's dsh.
+  const models = createModelSync({
+    ctx,
+    rpc: (method, args) => view.rpc(method, args),
+    paired: async () => Boolean(process.env.IDEA_DEV_DSH_LOGIN) || (await loadPairing()) !== undefined,
+  })
+  models.schedule()
+
   const rejected = (req, res) => {
     const rejection = ctx.connection.requestRejection(req)
     if (rejection === undefined) return false
@@ -222,6 +231,8 @@ export function apply(ctx) {
       }
       const cert = toPem(r.peerRaw)
       await savePairing({ url: base, token: out.token, id: out.id, host: out.host, cert, pairedAt: new Date().toISOString() })
+      view.reset()
+      models.schedule()
       sendJson(res, 200, { paired: true, url: base, host: out.host, device: out.id, fingerprint: fingerprint(cert) })
       return
     }
@@ -235,6 +246,7 @@ export function apply(ctx) {
         await rm(pairingFile(), { force: true })
       }
       view.reset()
+      models.reset()
       sendJson(res, 200, { paired: false })
       return
     }
