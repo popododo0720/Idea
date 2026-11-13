@@ -68,7 +68,8 @@ started() {
   head_html
   echo '<div class="stack"><div class="stack-sm"><h1>설치를 시작했습니다</h1>'
   echo "<p class=\"muted\"><span class=\"mono\">$(sed -n 1p "$W/choice")</span> 에 설치하고 다시 시작합니다.</p></div>"
-  echo '<div class="alert"><div>10분쯤 뒤 기기 화면에 설정 화면 주소와 설정 코드가 나옵니다. 이 페이지는 더 쓰이지 않습니다.</div></div></div>'
+  echo '<div class="alert alert-warn"><div>설치가 끝나면 기기가 다시 시작합니다. 그 전에 설치 미디어(ISO, USB)를 빼거나 디스크가 먼저 부팅되게 하세요. 그대로 두면 이 설치 화면이 다시 나옵니다.</div></div>'
+  echo '<p class="small muted">10분쯤 뒤 기기 화면에 설정 화면 주소와 설정 코드가 나옵니다.</p></div>'
   foot_html
 }
 

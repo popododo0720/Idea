@@ -66,10 +66,13 @@ log "building $SETUP_LOCAL"
 podman build -q --build-arg BUSYBOX_IMAGE="$BUSYBOX_IMAGE" -t "$SETUP_LOCAL" "$B/ext" >/dev/null
 podman push -q "$SETUP_LOCAL"
 
+# Talos halts an ISO boot on a disk that already has Talos (talos.halt_if_installed).
+# The install page asks a person before anything is wiped, so it decides instead.
 imager() {
   podman run --rm --network host -v "$B/out:/out" "$IMAGER" "$@" \
     --insecure \
     --extra-kernel-arg console=tty0 --extra-kernel-arg console=ttyS0 \
+    --extra-kernel-arg -talos.halt_if_installed \
     --system-extension-image "$TALOS_KATA_EXTENSION" \
     --system-extension-image "$TALOS_QEMU_GA_EXTENSION" \
     --system-extension-image "$SETUP_LOCAL"
