@@ -8,12 +8,19 @@
 //     `llm-pi-ai`, which holds every other provider route the Models page adds),
 //     when they are not empty,
 //   - the credentials those sections reference (their `apiKeyEnv` names, plus
-//     `DEEPSEEK_API_KEY`), when this dsh has a value for them.
+//     `DEEPSEEK_API_KEY`, which the desktop app's DeepSeek sign-in fills),
+//     when this dsh has a value for them,
+//   - the subscription sign-ins (Claude, ChatGPT, Copilot and the other pi-ai
+//     providers, e.g. from the dsh-subscription-login console): the
+//     credential records under the `llm-pi-ai` scope.
 //
 // It only adds and overwrites: nothing set on the machine itself is removed.
 //
-// It writes through the machine dsh's own Remote API (`settings/replace`,
-// `credentials/set`), exactly what its Models page would do. It runs when the
+// Settings and keys go through the machine dsh's own Remote API
+// (`settings/replace`, `credentials/set`), exactly what its Models page would
+// do. dsh has no Remote API for records, so sign-ins go to the
+// idea-machine-sync plugin of the machine dsh (`PUT /idea-sync/records`),
+// which keeps a grant it has refreshed since. It runs when the
 // pairing exists at start, after pairing, and whenever this dsh reports a
 // changed setting or credential. Nothing is sent again while the content is
 // unchanged. Values are never logged; only counts and error codes are.
@@ -24,6 +31,7 @@ const NAMESPACES = ['llm-deepseek', 'llm-pi-ai']
 const ALWAYS = ['DEEPSEEK_API_KEY']
 const DEBOUNCE_MS = 1500
 const REF = /^[A-Za-z_][A-Za-z0-9_]*$/
+const RECORD_SCOPE = 'llm-pi-ai/'
 
 /** Every `apiKeyEnv` string anywhere in a settings value. */
 function keyRefs(value, out = new Set()) {
@@ -57,16 +65,27 @@ async function collect(ctx) {
       if (hit && typeof hit.value === 'string' && hit.value.length > 0) keys[ref] = hit.value
     } catch { /* unreadable: leave it out */ }
   }
-  return { sections, keys }
+  const records = {}
+  for (const entry of await credentials.listRecords()) {
+    const key = String(entry.key)
+    if (!key.startsWith(RECORD_SCOPE)) continue
+    try {
+      const rec = await credentials.readRecord(entry.key)
+      if (rec) records[key] = rec
+    } catch { /* unreadable: leave it out */ }
+  }
+  return { sections, keys, records }
 }
 
 /**
  * @param {object} opts
  * @param {import('@deepseek-ai/cordis').Context} opts.ctx  this plugin's context
  * @param {(method: string, args: object) => Promise<unknown>} opts.rpc  machine dsh Remote API
+ * @param {(method: string, path: string, value: unknown) => Promise<{status: number, text: string}>} opts.json
+ *   one JSON request to the machine dsh
  * @param {() => Promise<boolean>} opts.paired
  */
-export function createModelSync({ ctx, rpc, paired }) {
+export function createModelSync({ ctx, rpc, json, paired }) {
   let last = ''      // digest of what the machine has from us
   let timer
   let running = Promise.resolve()
@@ -83,9 +102,13 @@ export function createModelSync({ ctx, rpc, paired }) {
     for (const [ref, value] of Object.entries(now.keys)) {
       await rpc('credentials/set', { ref, value })
     }
+    if (Object.keys(now.records).length > 0) {
+      const r = await json('PUT', '/idea-sync/records', { records: now.records })
+      if (r.status !== 200) throw new Error(`sign-ins: the machine dsh answered HTTP ${r.status}`)
+    }
     last = digest
-    ctx.logger.info('idea: model settings sent to the machine (%d sections, %d keys)',
-      Object.keys(now.sections).length, Object.keys(now.keys).length)
+    ctx.logger.info('idea: model settings sent to the machine (%d sections, %d keys, %d sign-ins)',
+      Object.keys(now.sections).length, Object.keys(now.keys).length, Object.keys(now.records).length)
   }
 
   /** Sync soon; calls in quick succession collapse into one. */
@@ -100,6 +123,7 @@ export function createModelSync({ ctx, rpc, paired }) {
 
   ctx.on('settings/document-updated', ns => { if (NAMESPACES.includes(ns)) schedule() })
   ctx.on('credentials/reference-updated', () => schedule())
+  ctx.on('credentials/record-updated', key => { if (String(key).startsWith(RECORD_SCOPE)) schedule() })
   ctx.effect(() => () => clearTimeout(timer), 'idea: model sync timer')
 
   return {

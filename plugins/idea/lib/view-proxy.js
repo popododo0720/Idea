@@ -223,19 +223,18 @@ export function createViewProxy({ upstream, log = () => {} }) {
       return `http://127.0.0.1:${port}/__idea/enter?t=${t}`
     },
     /**
-     * Call one Remote API method of the machine's dsh with this proxy's login
-     * (`POST /api/<ns>/<method>`, args by parameter name). Errors carry only
-     * the method and the remote error code, never the request.
+     * Send one JSON request to the machine's dsh with this proxy's login and
+     * return `{ status, text }`. A 401 signs in again once.
      */
-    async rpc(method, args) {
+    async json(method, path, value) {
       for (let attempt = 0; ; attempt++) {
         if (!target || !jar) await login()
-        const body = JSON.stringify({ type: 'client-request', rpcId: 'idea-' + randomBytes(6).toString('hex'), method, payload: { args } })
-        const req = await send('POST', new URL('/api/' + method, target.url), {
+        const body = JSON.stringify(value)
+        const req = await send(method, new URL(path, target.url), {
           host: target.authority, origin: target.origin, cookie: jar,
           'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)),
         })
-        const { status, text } = await new Promise((resolve, reject) => {
+        const out = await new Promise((resolve, reject) => {
           req.on('response', r => {
             absorbCookies(r.headers['set-cookie'])
             let d = ''
@@ -246,13 +245,23 @@ export function createViewProxy({ upstream, log = () => {} }) {
           req.on('error', reject)
           req.end(body)
         })
-        if (status === 401 && attempt === 0) { jar = ''; continue }
-        if (status !== 200) throw new Error(`idea: machine dsh ${method}: HTTP ${status}`)
-        let result
-        try { result = JSON.parse(text).result } catch { /* below */ }
-        if (!result || !result.ok) throw new Error(`idea: machine dsh ${method}: ${(result && result.error && result.error.code) || 'bad response'}`)
-        return result.value
+        if (out.status === 401 && attempt === 0) { jar = ''; continue }
+        return out
       }
+    },
+    /**
+     * Call one Remote API method of the machine's dsh (`POST /api/<ns>/<method>`,
+     * args by parameter name). Errors carry only the method and the remote
+     * error code, never the request.
+     */
+    async rpc(method, args) {
+      const { status, text } = await this.json('POST', '/api/' + method,
+        { type: 'client-request', rpcId: 'idea-' + randomBytes(6).toString('hex'), method, payload: { args } })
+      if (status !== 200) throw new Error(`idea: machine dsh ${method}: HTTP ${status}`)
+      let result
+      try { result = JSON.parse(text).result } catch { /* below */ }
+      if (!result || !result.ok) throw new Error(`idea: machine dsh ${method}: ${(result && result.error && result.error.code) || 'bad response'}`)
+      return result.value
     },
     /** Forget the upstream session (unpair). */
     reset() { jar = ''; target = undefined },

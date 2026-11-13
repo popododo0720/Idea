@@ -12,3 +12,9 @@
 - insert:
     - id: idea-forgejo
       name: '/opt/idea/plugins/forgejo/src/index.ts'
+
+# Subscription sign-ins (Claude, ChatGPT, ...) sent from the owner's dsh by
+# the idea plugin. See plugins/machine-sync.
+- insert:
+    - id: idea-machine-sync
+      name: '/opt/idea/plugins/machine-sync/src/index.ts'

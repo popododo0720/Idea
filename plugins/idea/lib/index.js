@@ -175,6 +175,7 @@ export function apply(ctx) {
   const models = createModelSync({
     ctx,
     rpc: (method, args) => view.rpc(method, args),
+    json: (method, path, value) => view.json(method, path, value),
     paired: async () => Boolean(process.env.IDEA_DEV_DSH_LOGIN) || (await loadPairing()) !== undefined,
   })
   models.schedule()

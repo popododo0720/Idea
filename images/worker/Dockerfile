@@ -72,6 +72,7 @@ RUN chmod 0755 /usr/local/bin/idea-entrypoint /usr/local/bin/idea-pr /usr/local/
 # dsh plugins of the agent dsh (idea-dsh), loaded from source by absolute
 # path. They import dsh's own packages, which Node resolves through this link.
 COPY plugins/forgejo/ /opt/idea/plugins/forgejo/
+COPY plugins/machine-sync/ /opt/idea/plugins/machine-sync/
 RUN ln -s /opt/dsh/node_modules /opt/idea/plugins/node_modules
 
 USER 1000:1000
