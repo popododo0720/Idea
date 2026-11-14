@@ -520,3 +520,15 @@ test('a team control the lead refuses keeps its status', { skip: noOpenssl }, as
   r = await h.call('POST', '/idea/team/delete', { json: { team: 'deadbeef' } })
   assert.deepEqual([r.status, r.json.error], [502, 'broken'], 'a machine failure is a bad gateway here')
 })
+
+test('/update shows the banner state and /update/apply only runs on a POST', async t => {
+  const h = await plugin(t)
+  const orig = globalThis.fetch
+  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ version: '99.0.0' }) })
+  t.after(() => { globalThis.fetch = orig })
+  const r = await h.call('GET', '/idea/update')
+  assert.equal(r.status, 200)
+  assert.equal(r.json.available, true)
+  assert.equal(r.json.latest, '99.0.0')
+  assert.equal((await h.call('GET', '/idea/update/apply')).status, 404)
+})

@@ -983,6 +983,24 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
               : h("div", { className: "idea-center" }, h("p", { className: "idea-hint" }, "Connecting to the machine…"))));
     }
 
+    function UpdateBanner() {
+      const [u, setU] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const [res, setRes] = useState(null);
+      useEffect(() => { api("GET", "/update").then(setU, () => {}); }, []);
+      if (!u || !u.available) return null;
+      const run = async () => {
+        setBusy(true);
+        try { setRes(await api("POST", "/update/apply", {})); } catch (err) { setRes({ ok: false, code: null, stderr: String(err.message || err) }); }
+        setBusy(false);
+      };
+      return h("div", { className: "idea-alert", role: "status" },
+        h("span", null, "idea plugin " + u.latest + " is available (installed " + u.installed + ") "),
+        h("a", { href: u.commits, target: "_blank", rel: "noreferrer" }, "Commits"), " ",
+        res && res.ok ? h("strong", null, "Restart dsh to finish") : h("button", { type: "button", disabled: busy, onClick: run }, busy ? "Updating…" : "Update"),
+        res && !res.ok ? h("pre", null, "Update failed (exit code " + (res.code === null ? "none" : res.code) + ")\n" + (res.stderr || "")) : null);
+    }
+
     function IdeaPanel() {
       useEffect(ensureStyle, []);
       const [state, setState] = useState(null);
@@ -993,7 +1011,7 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
       useEffect(() => { refresh(); }, [refresh]);
       if (!state) return h("div", { className: "idea-root" }, h("div", { className: "idea-center" }, error ? h(ErrorLine, { error }) : h("p", { className: "idea-hint" }, "Loading…")));
       if (!state.paired) return h("div", { className: "idea-root" }, h(PairForm, { onPaired: refresh }));
-      return h(MachineView, { state, onUnpaired: refresh });
+      return h("div", { className: "idea-root" }, h(UpdateBanner), h(MachineView, { state, onUnpaired: refresh }));
     }
 
     function IdeaIcon({ size }) {

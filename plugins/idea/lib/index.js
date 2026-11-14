@@ -15,6 +15,7 @@
 // address, its certificate (pinned) and the device token.
 
 import { X509Certificate, createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile, rename } from 'node:fs/promises'
 import { request as httpsRequest } from 'node:https'
 import { homedir, hostname } from 'node:os'
@@ -26,6 +27,7 @@ import { createSubscriptionsSync } from './subscriptions-sync.js'
 import { teamView } from './team-view.js'
 import { createLocalGit } from './git-local.js'
 import { createTools } from './tools.js'
+import { createUpdater } from './update.js'
 
 export const name = 'idea'
 export const inject = ['webServer', 'connection', 'tools']
@@ -35,6 +37,7 @@ const PREFIX = '/idea'
 // come from this plugin, installed alongside idea at an exact version.
 const SUBSCRIPTIONS = 'dsh-plugin-subscriptions'
 const SUBSCRIPTIONS_VERSION = '0.9.13'
+const pkgName = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).name
 const MAX_BODY = 64 * 1024
 const TIMEOUT_MS = 20_000
 
@@ -240,6 +243,19 @@ export function apply(ctx) {
     },
   })
 
+  // Update notice: the owner clicks Update; nothing installs by itself.
+  const updater = createUpdater({
+    ctx,
+    source: async () => {
+      const pm = ctx.get('pluginManager')
+      if (!pm || typeof pm.listBundles !== 'function') return undefined
+      const self = (await pm.listBundles()).find(b => b.name === pkgName)
+      return self && self.source
+    },
+  })
+  updater.start()
+  ctx.effect(() => () => updater.stop(), 'idea: update check')
+
   // Worker VMs that are up, for the Team tab.
   const workerVms = async () => {
     if (process.env.IDEA_DEV_DSH_LOGIN) return []
@@ -288,6 +304,17 @@ export function apply(ctx) {
       sendJson(res, 200, p
         ? { paired: true, url: p.url, host: p.host, device: p.id, fingerprint: fingerprint(p.cert), pairedAt: p.pairedAt }
         : { paired: false })
+      return
+    }
+
+    if (sub === '/update' && method === 'GET') {
+      await updater.check()
+      sendJson(res, 200, updater.state())
+      return
+    }
+    if (sub === '/update/apply' && method === 'POST') {
+      await readJson(req)
+      sendJson(res, 200, { ...(await updater.apply()), ...updater.state() })
       return
     }
 

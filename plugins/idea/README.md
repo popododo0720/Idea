@@ -45,6 +45,19 @@ The **Sessions** tab has the same thing for a person: **New task** opens a
 small form (project, title, body) that creates the task and shows the issue
 and task name it made.
 
+## Updates
+
+The plugin checks the `version` in its `package.json` on the default branch of
+the GitHub repository it was installed from (`popododo0720/Idea`, `main`, when
+dsh does not say), at start and every 6 hours, never more often than once per
+10 minutes. Only a `X.Y.Z` version is accepted; network errors are logged once
+and ignored. When the latest is newer, the panel shows "idea plugin X.Y.Z is
+available (installed A.B.C)" with a link to the commit list and an **Update**
+button. Nothing updates until you click it. The button runs, without a shell,
+`dsh plugin --profile <profile> add "<installed spec>"` with the running dsh
+(5 minute limit). On success the panel says "Restart dsh to finish"; on failure
+it shows the exit code and the last lines of stderr.
+
 ## How it works
 
 ```
