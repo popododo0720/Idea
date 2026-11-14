@@ -15,7 +15,7 @@ const MAX_DIFF = 2 * 1024 * 1024
 const LOCAL_MS = 30_000
 const NETWORK_MS = 120_000
 
-const BRANCH = /^(?!-)(?!.*\.\.)[A-Za-z0-9._\/-]{1,200}$/
+const BRANCH = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,200}$/
 const SHA = /^[0-9a-f]{4,64}$/
 const STASH = /^stash@\{\d{1,4}\}$/
 

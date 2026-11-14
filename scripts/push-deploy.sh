@@ -33,7 +33,8 @@ rev="$(git rev-parse --abbrev-ref HEAD)@sha1:$(git rev-parse HEAD)"
 url="oci://$LOCAL_REPO/idea-deploy:dev"
 # Push a copy whose dev root names LOCAL_REPO, so Flux keeps following this
 # registry after it reconciles clusters/dev.
-stage="$(mktemp -d)"; trap 'rm -rf "$stage"' EXIT
+stage="$(mktemp -d)"
+trap 'rm -rf "$stage"' EXIT
 cp -r "$REPO_ROOT/deploy" "$stage/deploy"
 URL="oci://$LOCAL_REPO/idea-deploy" yq -i \
   '(select(.kind == "OCIRepository") | .spec.url) = strenv(URL)' "$stage/deploy/clusters/dev/root.yaml"

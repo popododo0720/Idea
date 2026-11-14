@@ -20,13 +20,20 @@ const REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/
 const BRANCH = /^[A-Za-z0-9._/-]{1,200}$/
 const MAX_TEXT = 60_000
 
+interface ForgejoUser { login?: string }
+interface ForgejoIssue { number: number, title: string, state: string, user?: ForgejoUser, html_url?: string, body?: string }
+interface ForgejoComment { user?: ForgejoUser, created_at: string, body?: string, html_url?: string }
+interface ForgejoPullRequest { number: number, html_url: string, head?: { ref?: string } }
+interface ForgejoStatus { context: string, status?: string, state?: string, description?: string }
+interface ForgejoCombinedStatus { state?: string, total_count?: number, statuses?: ForgejoStatus[] }
+
 const TEXT_OUTPUT = {
   schema: {
     type: 'object',
     additionalProperties: false,
     properties: { text: { type: 'string', required: true } },
   },
-  render: (_args: unknown, v: { text: string }) => [{ type: 'text', text: v.text }],
+  render: (_args: unknown, v: { text: string }) => [{ type: 'text' as const, text: v.text }],
 } as const
 
 function clip(s: string, n = MAX_TEXT): string {
@@ -36,7 +43,7 @@ function clip(s: string, n = MAX_TEXT): string {
 export function apply(ctx: Context, config: Config = {}) {
   const api = (config.api ?? process.env.FORGEJO_API ?? '').replace(/\/+$/, '')
 
-  async function call(method: string, path: string, body?: unknown): Promise<any> {
+  async function call<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
     const token = process.env.FORGEJO_TOKEN
     if (!api || !token) throw new Error('Forgejo is not configured in this dsh (FORGEJO_API / FORGEJO_TOKEN)')
     const res = await fetch(api + path, {
@@ -51,7 +58,7 @@ export function apply(ctx: Context, config: Config = {}) {
     })
     const text = await res.text()
     if (!res.ok) throw new Error(`Forgejo ${method} ${path}: HTTP ${res.status}: ${text.slice(0, 300)}`)
-    return text ? JSON.parse(text) : null
+    return (text ? JSON.parse(text) : null) as T
   }
 
   function repoOf(repo: string): string {
@@ -70,8 +77,8 @@ export function apply(ctx: Context, config: Config = {}) {
     async execute(args) {
       const repo = repoOf(args.repo)
       const n = Math.trunc(args.number)
-      const issue = await call('GET', `/repos/${repo}/issues/${n}`)
-      const comments: any[] = await call('GET', `/repos/${repo}/issues/${n}/comments?limit=50`)
+      const issue = await call<ForgejoIssue>('GET', `/repos/${repo}/issues/${n}`)
+      const comments = await call<ForgejoComment[]>('GET', `/repos/${repo}/issues/${n}/comments?limit=50`)
       const lines = [
         `#${issue.number} ${issue.title} [${issue.state}] by ${issue.user?.login ?? '?'}`,
         issue.html_url ?? '',
@@ -100,10 +107,10 @@ export function apply(ctx: Context, config: Config = {}) {
       const repo = repoOf(args.repo)
       const base = args.base ?? 'main'
       if (!BRANCH.test(args.head) || !BRANCH.test(base)) throw new Error('invalid branch name')
-      const open: any[] = await call('GET', `/repos/${repo}/pulls?state=open&limit=50`)
+      const open = await call<ForgejoPullRequest[]>('GET', `/repos/${repo}/pulls?state=open&limit=50`)
       const existing = open.find(p => p.head?.ref === args.head)
       if (existing) return { text: `pull request #${existing.number} already open: ${existing.html_url}` }
-      const pr = await call('POST', `/repos/${repo}/pulls`, {
+      const pr = await call<ForgejoPullRequest>('POST', `/repos/${repo}/pulls`, {
         head: args.head, base, title: args.title, body: args.body ?? '',
       })
       return { text: `pull request #${pr.number} opened: ${pr.html_url}` }
@@ -121,7 +128,7 @@ export function apply(ctx: Context, config: Config = {}) {
     output: TEXT_OUTPUT,
     async execute(args) {
       const repo = repoOf(args.repo)
-      const c = await call('POST', `/repos/${repo}/issues/${Math.trunc(args.number)}/comments`, { body: args.body })
+      const c = await call<ForgejoComment>('POST', `/repos/${repo}/issues/${Math.trunc(args.number)}/comments`, { body: args.body })
       return { text: `comment added: ${c.html_url ?? ''}` }
     },
   }))
@@ -137,7 +144,7 @@ export function apply(ctx: Context, config: Config = {}) {
     async execute(args) {
       const repo = repoOf(args.repo)
       if (!BRANCH.test(args.ref)) throw new Error('invalid ref')
-      const st = await call('GET', `/repos/${repo}/commits/${encodeURIComponent(args.ref)}/status`)
+      const st = await call<ForgejoCombinedStatus>('GET', `/repos/${repo}/commits/${encodeURIComponent(args.ref)}/status`)
       const lines = [`combined state: ${st.state || 'none'} (${st.total_count ?? 0} checks)`]
       for (const s of st.statuses ?? []) lines.push(`- ${s.context}: ${s.status ?? s.state} ${s.description ?? ''}`)
       return { text: lines.join('\n') }

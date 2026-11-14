@@ -29,8 +29,11 @@ esac
 
 cd "$REPO_ROOT"
 fail=0
-bad() { echo "FAIL: $*" >&2; fail=1; }
-ok()  { echo "ok:   $*" >&2; }
+bad() {
+  echo "FAIL: $*" >&2
+  fail=1
+}
+ok() { echo "ok:   $*" >&2; }
 
 has_commits() { git rev-parse --verify -q HEAD >/dev/null; }
 
@@ -56,10 +59,10 @@ search() {
   if [ "$MODE" = staged ]; then
     if staged_added | grep -cFf "$pats" >/dev/null; then
       echo "      $label: in staged changes:" >&2
-      git diff --cached --name-only --diff-filter=ACMR -z |
-        while IFS= read -r -d '' f; do
-          git show ":$f" 2>/dev/null | grep -nFf "$pats" | cut -d: -f1 |
-            sed "s|^|        $f:|" >&2 || true
+      git diff --cached --name-only --diff-filter=ACMR -z \
+        | while IFS= read -r -d '' f; do
+          git show ":$f" 2>/dev/null | grep -nFf "$pats" | cut -d: -f1 \
+            | sed "s|^|        $f:|" >&2 || true
         done
       found=0
     fi
@@ -71,8 +74,8 @@ search() {
     echo "$out" | sed 's/^/        /' >&2
     found=0
   fi
-  out="$(history | grep -Ff "$pats" -e "$MARK" |
-    awk -v m="$MARK" 'index($0,m)==1 {c=substr($0,length(m)+1); next} c!=last {print c; last=c}' || true)"
+  out="$(history | grep -Ff "$pats" -e "$MARK" \
+    | awk -v m="$MARK" 'index($0,m)==1 {c=substr($0,length(m)+1); next} c!=last {print c; last=c}' || true)"
   if [ -n "$out" ]; then
     echo "      $label: in history, commits:" >&2
     echo "$out" | sort -u | sed 's/^/        /' >&2
@@ -83,29 +86,39 @@ search() {
 
 # ------------------------------------------------------------- 1. gitleaks
 if [ "$MODE" = staged ]; then
-  gitleaks git --staged --pre-commit --no-banner --redact --log-level=error . \
-    && ok "gitleaks (staged)" || bad "gitleaks found a secret in staged changes"
+  if gitleaks git --staged --pre-commit --no-banner --redact --log-level=error .; then
+    ok "gitleaks (staged)"
+  else
+    bad "gitleaks found a secret in staged changes"
+  fi
 else
-  gitleaks dir --no-banner --redact --log-level=error . \
-    && ok "gitleaks (working tree)" || bad "gitleaks found a secret in the working tree"
+  if gitleaks dir --no-banner --redact --log-level=error .; then
+    ok "gitleaks (working tree)"
+  else
+    bad "gitleaks found a secret in the working tree"
+  fi
   if has_commits; then
-    gitleaks git --no-banner --redact --log-level=error --log-opts=--all . \
-      && ok "gitleaks (history)" || bad "gitleaks found a secret in history"
+    if gitleaks git --no-banner --redact --log-level=error --log-opts=--all .; then
+      ok "gitleaks (history)"
+    else
+      bad "gitleaks found a secret in history"
+    fi
   fi
 fi
 
 # ------------------------------------------- 2. no Secret manifests in deploy/
 secret_re='^[[:space:]]*kind:[[:space:]]*["'"'"']?Secret["'"'"']?[[:space:]]*$'
 if [ "$MODE" = staged ]; then
-  hits="$(git diff --cached --name-only --diff-filter=ACMR -z -- deploy |
-    while IFS= read -r -d '' f; do
+  hits="$(git diff --cached --name-only --diff-filter=ACMR -z -- deploy \
+    | while IFS= read -r -d '' f; do
       git show ":$f" | grep -cE "$secret_re" >/dev/null && echo "$f"
     done || true)"
 else
   hits="$(grep -rlE "$secret_re" deploy 2>/dev/null || true)"
 fi
 if [ -n "$hits" ]; then
-  bad "kind: Secret under deploy/:"; echo "$hits" | sed 's/^/        /' >&2
+  bad "kind: Secret under deploy/:"
+  echo "$hits" | sed 's/^/        /' >&2
 else
   ok "no Secret manifests under deploy/"
 fi
@@ -116,16 +129,16 @@ pairs="$TMP/pairs"
 collect_secret_values "$pairs"
 
 if [ -s "$pairs" ]; then
-  cut -f2- "$pairs" > "$TMP/all"
+  cut -f2- "$pairs" >"$TMP/all"
   if search "$TMP/all" "secret value" 2>/dev/null; then
     bad "a value from $IDEA_SECRETS_DIR is in the repo. Stop, report, and rotate it."
     # Name the offending keys (never the values).
     while IFS=$'\t' read -r src v; do
-      printf '%s\n' "$v" > "$TMP/one"
+      printf '%s\n' "$v" >"$TMP/one"
       search "$TMP/one" "$src" || true
-    done < "$pairs"
+    done <"$pairs"
   else
-    ok "no value from the secrets dir is in the repo ($(wc -l < "$pairs") values checked)"
+    ok "no value from the secrets dir is in the repo ($(wc -l <"$pairs") values checked)"
   fi
 else
   ok "secrets dir has no values to compare yet"
@@ -134,12 +147,12 @@ fi
 # ------------------------------------------------ 4. private strings
 priv="$IDEA_SECRETS_DIR/private-strings"
 if [ -f "$priv" ]; then
-  grep -vE '^[[:space:]]*(#|$)' "$priv" > "$TMP/priv" || true
+  grep -vE '^[[:space:]]*(#|$)' "$priv" >"$TMP/priv" || true
   if [ -s "$TMP/priv" ]; then
     if search "$TMP/priv" "private string"; then
       bad "a string from private-strings is in the repo"
     else
-      ok "no private string in the repo ($(wc -l < "$TMP/priv") strings checked)"
+      ok "no private string in the repo ($(wc -l <"$TMP/priv") strings checked)"
     fi
   else
     echo "warn: $priv is empty" >&2
@@ -154,7 +167,10 @@ fi
 # mirror (controller/publish.go uses the same list).
 noreply='(@users\.noreply\.github\.com|^idea-worker@idea\.internal|^idea-admin@idea\.internal)$'
 if [ "$MODE" = staged ]; then
-  mails="$(git var GIT_AUTHOR_IDENT; git var GIT_COMMITTER_IDENT)"
+  mails="$(
+    git var GIT_AUTHOR_IDENT
+    git var GIT_COMMITTER_IDENT
+  )"
   mails="$(echo "$mails" | sed -E 's/.*<([^>]*)>.*/\1/' | sort -u)"
 else
   mails="$(has_commits && git log --all --format='%ae%n%ce' | sort -u || true)"

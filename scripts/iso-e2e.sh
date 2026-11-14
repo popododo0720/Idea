@@ -19,10 +19,11 @@ need curl jq python3
 S="$REPO_ROOT/scripts"
 CONSOLE="$IDEA_DATA_DIR/logs/idea-iso-1-console.log"
 t0=$(date +%s)
-mark() { printf '%5ds  %s\n' "$(( $(date +%s) - t0 ))" "$*"; }
+mark() { printf '%5ds  %s\n' "$(($(date +%s) - t0))" "$*"; }
 wait_for() { # wait_for <seconds> <description> <command...>
-  local limit=$1 what=$2; shift 2
-  local end=$(( $(date +%s) + limit ))
+  local limit=$1 what=$2
+  shift 2
+  local end=$(($(date +%s) + limit))
   until "$@" >/dev/null 2>&1; do
     [ "$(date +%s)" -lt "$end" ] || die "timed out waiting for: $what"
     sleep 5
@@ -33,26 +34,36 @@ wait_for() { # wait_for <seconds> <description> <command...>
 case "${1:-}" in
   --running) ;;
   "") die "usage: $0 <iso> | --running" ;;
-  *) "$S/iso-test.sh" create "$1" >/dev/null 2>&1 || die "could not start the test VM"
-     mark "blank VM booted from $(basename "$1"); nothing else is sent to it" ;;
+  *)
+    "$S/iso-test.sh" create "$1" >/dev/null 2>&1 || die "could not start the test VM"
+    mark "blank VM booted from $(basename "$1"); nothing else is sent to it"
+    ;;
 esac
 
 # Everything secret stays in RAM and is removed on exit.
-T="$(mktemp -d /dev/shm/idea-iso-e2e.XXXXXX)"; chmod 700 "$T"
+T="$(mktemp -d /dev/shm/idea-iso-e2e.XXXXXX)"
+chmod 700 "$T"
 trap 'rm -rf "$T"' EXIT
 
 console() { sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' "$CONSOLE" | tr -d '\r'; }
 # (Captured first: `grep -q` on a pipe ends early and, under pipefail, turns a
 # match into a failure.)
-seen() { local o; o="$(console)"; grep -q "$1" <<<"$o"; }
+seen() {
+  local o
+  o="$(console)"
+  grep -q "$1" <<<"$o"
+}
 announced() { seen 'idea: setup code'; }
 wait_for 600 "machine installed itself and shows the setup page address" announced
-console | sed -n 's/.*idea: setup code  *//p' | tail -n 1 | tr -d '\n' > "$T/code"
+console | sed -n 's/.*idea: setup code  *//p' | tail -n 1 | tr -d '\n' >"$T/code"
 url="$(console | sed -n 's/.*idea: setup page  *//p' | tail -n 1)"
 ip="$(sed -E 's#https://([0-9.]+):.*#\1#' <<<"$url")"
 [ -s "$T/code" ] && [ -n "$ip" ] || die "could not read the setup page address and code from the console"
-seen 'generated new cluster secrets' && mark "secrets were generated on the machine" \
-  || mark "secrets came with the ISO (--embed-secrets build)"
+if seen 'generated new cluster secrets'; then
+  mark "secrets were generated on the machine"
+else
+  mark "secrets came with the ISO (--embed-secrets build)"
+fi
 
 page() { curl -sk -m 20 "$@"; }
 wait_for 2700 "setup page answers at $url" page -o /dev/null -f "$url"
@@ -63,7 +74,7 @@ page --data-urlencode "code=wrong-code-0000" "$url" | grep -c 'Wrong setup code'
 mark "wrong setup code rejected"
 
 # The unlocked page.
-page --data-urlencode "code@$T/code" "$url" > "$T/page.html"
+page --data-urlencode "code@$T/code" "$url" >"$T/page.html"
 grep -q "Connect your dsh" "$T/page.html" || die "the setup code did not unlock the page"
 mark "setup page unlocked"
 
@@ -71,14 +82,14 @@ mark "setup page unlocked"
 # The key comes from the file a human keeps on this host; never on a command line.
 envf="$IDEA_SECRETS_DIR/env"
 umask 077
-jq -n --rawfile c "$T/code" '{code: $c, device: "iso-e2e"}' > "$T/pair.json"
+jq -n --rawfile c "$T/code" '{code: $c, device: "iso-e2e"}' >"$T/pair.json"
 page -H "Content-Type: application/json" --data-binary "@$T/pair.json" "${url}api/v1/pair" \
-  | jq -r '.token // empty' > "$T/devtoken"
+  | jq -r '.token // empty' >"$T/devtoken"
 [ -s "$T/devtoken" ] || die "pairing with the setup code failed"
-printf 'header = "Authorization: Bearer %s"\n' "$(cat "$T/devtoken")" > "$T/apirc"
-sed -n 's/^DEEPSEEK_API_KEY=//p' "$envf" | tr -d '\n' > "$T/deepseek"
+printf 'header = "Authorization: Bearer %s"\n' "$(cat "$T/devtoken")" >"$T/apirc"
+sed -n 's/^DEEPSEEK_API_KEY=//p' "$envf" | tr -d '\n' >"$T/deepseek"
 [ -s "$T/deepseek" ] || die "$envf has no DEEPSEEK_API_KEY"
-jq -n --rawfile k "$T/deepseek" '{deepseek: $k}' > "$T/keys.json"
+jq -n --rawfile k "$T/deepseek" '{deepseek: $k}' >"$T/keys.json"
 page -K "$T/apirc" -X PUT -H "Content-Type: application/json" --data-binary "@$T/keys.json" "${url}api/v1/keys" \
   | grep -q '"saved":true' || die "the API did not save the model key"
 mark "paired and stored the model key"
@@ -99,7 +110,7 @@ with open(os.open(os.path.join(t, "curlrc"), os.O_WRONLY | os.O_CREAT, 0o600), "
 PY
 
 # Admin access for the owner is offered as well.
-page --data-urlencode "code@$T/code" "${url}talosconfig" > "$T/talosconfig"
+page --data-urlencode "code@$T/code" "${url}talosconfig" >"$T/talosconfig"
 grep -q '^contexts:' "$T/talosconfig" || die "the setup page did not hand out a talosconfig"
 if [ "${KEEP_TALOSCONFIG:-0}" = 1 ]; then
   install -d -m 700 "$IDEA_SECRETS_DIR/iso"

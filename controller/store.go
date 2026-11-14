@@ -55,7 +55,11 @@ func (s *Store) Claim(ctx context.Context, repo string, issue int64, task string
 }
 
 func (s *Store) Event(ctx context.Context, task, phase, message string) {
-	// History is best effort: a failed insert must not stall a task.
+	// History is best effort: a failed insert must not stall a task. Without
+	// a database (tests) there is no history.
+	if s == nil {
+		return
+	}
 	_, _ = s.pool.Exec(ctx,
 		`INSERT INTO task_events (task, phase, message) VALUES ($1, $2, $3)`, task, phase, message)
 }

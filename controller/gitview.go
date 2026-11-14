@@ -105,7 +105,7 @@ func (c *Controller) handleGit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in any
-	if r.Method == "POST" {
+	if r.Method == http.MethodPost {
 		var m struct {
 			Do                     string `json:"Do"`
 			DeleteBranchAfterMerge bool   `json:"delete_branch_after_merge"`
@@ -154,6 +154,8 @@ func (c *Controller) handleGit(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(200)
-	_, _ = w.Write(data)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data) //nolint:gosec // G705: Forgejo's JSON, served as application/json with nosniff
+
 }

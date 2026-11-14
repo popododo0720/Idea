@@ -32,7 +32,15 @@ import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { lookup } from 'node:dns/promises'
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-api-session-controller'
+import type { SessionPromptRequest, SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
+import type {} from '@deepseek-ai/dsh-api-workspace-controller'
+import type {} from '@deepseek-ai/dsh-client-connection'
+import type {} from '@deepseek-ai/dsh-host-webserver'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 
 export const name = 'idea-team'
 export const inject = ['webServer', 'connection', 'tools', 'sessionController', 'workspaceController']
@@ -69,6 +77,18 @@ type State = {
   /** Members stopped by the lead, by `<team>/<name>`. */
   stopped: Record<string, true>
 }
+/** One operation on a team's task board, as a member sends it (read defensively). */
+type BoardOp = { op?: unknown, id?: unknown, title?: unknown, detail?: unknown, owner?: unknown, after?: unknown, status?: unknown, note?: unknown }
+/** A teammate as another VM reports it (`GET /idea-team/load`). */
+type LiveMember = { team: string, name: string, session: string, stopped: boolean, running: boolean }
+// Request bodies, as the sending VM (or the owner's panel) writes them. They
+// come off the wire, so every handler still checks each field it reads.
+type InboxBody = { team: string, from: string, fromVm: string, to: string, text: string }
+type SpawnBody = { team: string, name: string, role?: unknown, task: string, lead: { vm: string }, roster: unknown }
+type RosterBody = { team: string, roster: unknown }
+type StopBody = { team: string, name: string }
+type TasksBody = { team: string, from: string, fromVm: string, op?: BoardOp }
+type PeerBody = InboxBody & SpawnBody & RosterBody & StopBody & TasksBody
 type LogLine = { t: string, team: string, from: string, fromVm: string, to: string, toVm: string, text: string, dir: 'in' | 'out' }
 
 const home = () => process.env.DSH_HOME || join(homedir(), '.dsh')
@@ -117,7 +137,7 @@ function send(res: ServerResponse, status: number, value: unknown) {
   res.end(JSON.stringify(value))
 }
 
-async function body(req: IncomingMessage): Promise<any> {
+async function body(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = []
   let size = 0
   for await (const c of req) {
@@ -130,7 +150,8 @@ async function body(req: IncomingMessage): Promise<any> {
   }
 }
 
-type Reply = { status: number, value: any }
+/** A JSON answer; fields are read with optional chaining, so a value that is not an object reads as empty. */
+type Reply = { status: number, value: Record<string, unknown> | null }
 
 /** One JSON request to another VM's dsh, TLS pinned to the machine's certificate. */
 async function peer(vm: string, method: string, path: string, payload?: unknown, signal?: AbortSignal): Promise<Reply> {
@@ -185,7 +206,7 @@ function collect(res: IncomingMessage, resolve: (r: Reply) => void, reject: (e: 
   res.on('end', () => {
     let value: unknown = null
     try { value = JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null') } catch { /* not JSON */ }
-    resolve({ status: res.statusCode || 0, value })
+    resolve({ status: res.statusCode || 0, value: value as Reply['value'] })
   })
   res.on('error', reject)
 }
@@ -203,11 +224,10 @@ const TEXT_OUTPUT = {
     additionalProperties: false,
     properties: { text: { type: 'string', required: true } },
   },
-  render: (_args: unknown, v: { text: string }) => [{ type: 'text', text: v.text }],
+  render: (_args: unknown, v: { text: string }) => [{ type: 'text' as const, text: v.text }],
 } as const
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function apply(ctx: any) {
+export function apply(ctx: Context) {
   let state: State = { led: {}, local: {}, rosters: {}, stopped: {} }
   let loaded: Promise<void> | undefined
   let saving = Promise.resolve()
@@ -239,19 +259,19 @@ export function apply(ctx: any) {
   }
 
   async function running(session: string): Promise<boolean | undefined> {
-    try { return (await ctx.sessionController.state({ sessionId: session }, AbortSignal.timeout(10_000))).running } catch { return undefined }
+    try { return (await ctx.sessionController.state({ sessionId: session as SessionId }, AbortSignal.timeout(10_000))).running } catch { return undefined }
   }
 
   /** Hand text to a session on this VM: at its next step if it is working, else as a new turn. */
   async function deliver(session: string, text: string, signal?: AbortSignal) {
     const mode = (await running(session)) ? 'steer' : 'queue'
-    const request = { requestId: randomUUID(), sessionId: session, mode, content: [{ type: 'text', text }] }
+    const request: SessionPromptRequest = { requestId: randomUUID() as SessionRequestId, sessionId: session as SessionId, mode, content: [{ type: 'text', text }] }
     try {
       await ctx.sessionController.prompt(request, signal ?? AbortSignal.timeout(30_000))
     } catch (e) {
       if (mode !== 'steer') throw e
       // The turn ended in between: start a new one.
-      await ctx.sessionController.prompt({ ...request, requestId: randomUUID(), mode: 'queue' }, signal ?? AbortSignal.timeout(30_000))
+      await ctx.sessionController.prompt({ ...request, requestId: randomUUID() as SessionRequestId, mode: 'queue' }, signal ?? AbortSignal.timeout(30_000))
     }
   }
 
@@ -261,7 +281,7 @@ export function apply(ctx: any) {
   }
 
   /** The caller's membership, from the agent the tool runs for. */
-  function memberOf(exec: any): { session: string, local?: Local } {
+  function memberOf(exec: ToolRunContext): { session: string, local?: Local } {
     const session = exec?.agent?.id
     if (typeof session !== 'string') throw new Error('this tool needs a session')
     return { session, local: state.local[session] }
@@ -299,7 +319,7 @@ export function apply(ctx: any) {
       task: { type: 'string', required: true, description: 'The full task: repository, what to build, acceptance criteria, who to coordinate with' },
     },
     output: TEXT_OUTPUT,
-    async execute(args: { name: string, role: string, task: string }, exec: any) {
+    async execute(args: { name: string, role: string, task: string }, exec) {
       await load()
       const name = String(args.name).trim()
       if (!NAME.test(name) || name === LEAD) throw new Error('name: lowercase letters, digits and dashes, starting with a letter; not "lead"')
@@ -326,7 +346,7 @@ export function apply(ctx: any) {
       // Where: the controller picks a worker VM with a free slot.
       const until = Date.now() + PLACEMENT_WAIT_MS
       let vm = ''
-      let why = ''
+      let why: string
       while (!vm) {
         const r = await placement(exec.signal)
         if (r.status === 200 && typeof r.value?.vm === 'string' && VM.test(r.value.vm)) { vm = r.value.vm; break }
@@ -359,7 +379,7 @@ export function apply(ctx: any) {
       text: { type: 'string', required: true, description: 'The message' },
     },
     output: TEXT_OUTPUT,
-    async execute(args: { to: string, text: string }, exec: any) {
+    async execute(args: { to: string, text: string }, exec) {
       await load()
       const me = memberOf(exec)
       if (!me.local) throw new Error('this session is not in a team (team_spawn makes one)')
@@ -375,7 +395,7 @@ export function apply(ctx: any) {
         const payload = { team, from, fromVm: SELF, to: m.name, text }
         try {
           const r = m.vm === SELF ? await inbox(payload) : await peer(m.vm, 'POST', '/idea-team/inbox', payload, exec.signal)
-          if (r.status !== 200) throw new Error(r.value?.error ?? `HTTP ${r.status}`)
+          if (r.status !== 200) throw new Error((r.value?.error as string | undefined) ?? `HTTP ${r.status}`)
           await log({ team, from, fromVm: SELF, to: m.name, toVm: m.vm, text, dir: 'out' })
         } catch (e) { failed.push(`${m.name}: ${(e as Error).message}`) }
       }))
@@ -389,17 +409,17 @@ export function apply(ctx: any) {
     description: 'List your team: each teammate, its role, its VM, and whether it is working right now.',
     parameters: {},
     output: TEXT_OUTPUT,
-    async execute(_args: unknown, exec: any) {
+    async execute(_args: unknown, exec) {
       await load()
       const me = memberOf(exec)
       if (!me.local) return { text: 'This session is not in a team (team_spawn makes one).' }
       const { team } = me.local
       const roster = state.rosters[team] ?? []
-      const byVm = new Map<string, any[]>()
+      const byVm = new Map<string, LiveMember[]>()
       await Promise.all([...new Set(roster.map(m => m.vm))].map(async vm => {
         try {
           const r = vm === SELF ? { status: 200, value: await load_() } : await peer(vm, 'GET', '/idea-team/load', undefined, exec.signal)
-          if (r.status === 200) byVm.set(vm, r.value?.members ?? [])
+          if (r.status === 200) byVm.set(vm, (r.value?.members ?? []) as LiveMember[])
         } catch { /* unreachable */ }
       }))
       const lines = roster.map(m => {
@@ -418,7 +438,7 @@ export function apply(ctx: any) {
       name: { type: 'string', required: true, description: 'Teammate name' },
     },
     output: TEXT_OUTPUT,
-    async execute(args: { name: string }, exec: any) {
+    async execute(args: { name: string }, exec) {
       await load()
       const me = memberOf(exec)
       const t = me.local && state.led[me.local.team]
@@ -443,7 +463,7 @@ export function apply(ctx: any) {
   // ------------------------------------------------------------ task board
 
   /** One change to (or a read of) a team's board, on the lead's VM. */
-  async function boardOp(team: string, who: string, op: any): Promise<Reply> {
+  async function boardOp(team: string, who: string, op: BoardOp | undefined): Promise<Reply> {
     const t = state.led[team]
     if (!t) return { status: 404, value: { error: `team ${team} is not led from ${SELF}` } }
     const names = [LEAD, ...t.members.map(m => m.name)]
@@ -476,12 +496,12 @@ export function apply(ctx: any) {
       const task = byId(op.id)
       if (!task) return bad(`no task #${op.id}`)
       if (op.status !== undefined) {
-        if (!STATUSES.includes(op.status)) return bad(`status: one of ${STATUSES.join(', ')}`)
+        if (!STATUSES.includes(op.status as TaskStatus)) return bad(`status: one of ${STATUSES.join(', ')}`)
         if (op.status === 'doing') {
           const waiting = task.after.filter(id => byId(id)?.status !== 'done')
           if (waiting.length) return bad(`task #${task.id} waits for #${waiting.join(', #')}`)
         }
-        task.status = op.status
+        task.status = op.status as TaskStatus
       }
       if (op.owner !== undefined) task.owner = owner(op.owner)
       if (op.status === 'doing' && !task.owner) task.owner = who
@@ -496,7 +516,7 @@ export function apply(ctx: any) {
   }
 
   /** A board call from a tool: on this VM for the lead, else at the lead's VM. */
-  async function board(exec: any, op: any): Promise<Task[]> {
+  async function board(exec: ToolRunContext, op: BoardOp): Promise<Task[]> {
     await load()
     const me = memberOf(exec)
     if (!me.local) throw new Error('this session is not in a team (team_spawn makes one)')
@@ -504,8 +524,8 @@ export function apply(ctx: any) {
     const r = lead.vm === SELF
       ? await boardOp(team, name, op)
       : await peer(lead.vm, 'POST', '/idea-team/tasks', { team, from: name, fromVm: SELF, op }, exec.signal)
-    if (r.status !== 200) throw new Error(r.value?.error ?? `HTTP ${r.status}`)
-    return r.value.tasks as Task[]
+    if (r.status !== 200) throw new Error((r.value?.error as string | undefined) ?? `HTTP ${r.status}`)
+    return r.value!.tasks as Task[]
   }
 
   function boardText(tasks: Task[]): string {
@@ -521,7 +541,7 @@ export function apply(ctx: any) {
     description: 'Show your team\'s task board: every task with its status (todo, doing, blocked, done), owner and what it waits for.',
     parameters: {},
     output: TEXT_OUTPUT,
-    async execute(_args: unknown, exec: any) {
+    async execute(_args: unknown, exec) {
       return { text: boardText(await board(exec, { op: 'list' })) }
     },
   }))
@@ -537,7 +557,7 @@ export function apply(ctx: any) {
       after: { type: 'string', description: 'Task numbers it waits for, e.g. "1, 3" (optional)' },
     },
     output: TEXT_OUTPUT,
-    async execute(args: { title: string, detail?: string, owner?: string, after?: string }, exec: any) {
+    async execute(args: { title: string, detail?: string, owner?: string, after?: string }, exec) {
       const after = String(args.after ?? '').split(/[\s,#]+/).filter(Boolean).map(Number).filter(Number.isInteger)
       const tasks = await board(exec, { op: 'add', title: args.title, detail: args.detail, owner: args.owner, after })
       return { text: `Added #${tasks[tasks.length - 1].id}.\n${boardText(tasks)}` }
@@ -555,10 +575,10 @@ export function apply(ctx: any) {
       note: { type: 'string', description: 'Short note: why blocked, what was done, the pull request' },
     },
     output: TEXT_OUTPUT,
-    async execute(args: { id: string, status?: string, owner?: string, note?: string }, exec: any) {
+    async execute(args: { id: string, status?: string, owner?: string, note?: string }, exec) {
       const id = Number(String(args.id).replace('#', ''))
       if (!Number.isInteger(id)) throw new Error('id: a task number')
-      const op: any = { op: 'update', id }
+      const op: BoardOp = { op: 'update', id }
       if (args.status) op.status = String(args.status).trim()
       if (args.owner !== undefined) op.owner = args.owner
       if (args.note !== undefined) op.note = args.note
@@ -579,7 +599,7 @@ export function apply(ctx: any) {
     return { vm: SELF, members }
   }
 
-  async function inbox(v: any, req?: IncomingMessage): Promise<Reply> {
+  async function inbox(v: InboxBody, req?: IncomingMessage): Promise<Reply> {
     await load()
     if (req && !(await fromVm(req, v?.fromVm))) return { status: 403, value: { error: 'the message does not come from the VM it names' } }
     if (!TEAM.test(v?.team) || !NAME.test(v?.from) || !NAME.test(v?.to) || !VM.test(v?.fromVm) || typeof v?.text !== 'string') {
@@ -598,7 +618,7 @@ export function apply(ctx: any) {
     return { status: 200, value: { accepted: true } }
   }
 
-  async function spawn(v: any, req?: IncomingMessage): Promise<Reply> {
+  async function spawn(v: SpawnBody, req?: IncomingMessage): Promise<Reply> {
     await load()
     // Teammates run on worker VMs only, and only the agent dsh leads teams.
     if (SELF === 'idea-dsh') return { status: 403, value: { error: 'teammates run on worker VMs' } }
@@ -617,7 +637,7 @@ export function apply(ctx: any) {
     const ws = await ctx.workspaceController.create({ path: dir })
     const created = await ctx.sessionController.create({ workspaceId: ws.workspace.workspaceId })
     const session: string = created.sessionId
-    try { await ctx.sessionController.rename({ sessionId: session, title: `${name} · team ${team}` }) } catch { /* title only */ }
+    try { await ctx.sessionController.rename({ sessionId: session as SessionId, title: `${name} · team ${team}` }) } catch { /* title only */ }
     const roster = (v.roster as Member[]).filter(m => NAME.test(m?.name) && VM.test(m?.vm))
       .concat([{ name, vm: SELF, session, role: String(v.role ?? '').slice(0, 200) }])
     const before = state.rosters[team]
@@ -654,7 +674,7 @@ export function apply(ctx: any) {
     return { status: 200, value: { session } }
   }
 
-  async function roster(v: any, req?: IncomingMessage): Promise<Reply> {
+  async function roster(v: RosterBody, req?: IncomingMessage): Promise<Reply> {
     await load()
     if (!req || !(await fromVm(req, 'idea-dsh'))) return { status: 403, value: { error: 'only the team lead sends the roster' } }
     if (!TEAM.test(v?.team) || !Array.isArray(v?.roster)) return { status: 400, value: { error: 'invalid roster' } }
@@ -665,7 +685,7 @@ export function apply(ctx: any) {
     return { status: 200, value: { ok: true } }
   }
 
-  async function stop(v: any, req?: IncomingMessage): Promise<Reply> {
+  async function stop(v: StopBody, req?: IncomingMessage): Promise<Reply> {
     await load()
     if (!req || !(await fromVm(req, 'idea-dsh'))) return { status: 403, value: { error: 'only the team lead stops teammates' } }
     const hit = Object.entries(state.local).find(([, l]) => l.team === v?.team && l.name === v?.name)
@@ -673,13 +693,13 @@ export function apply(ctx: any) {
     state.stopped[`${v.team}/${v.name}`] = true
     delete state.local[hit[0]]
     await save()
-    try { ctx.sessionController.cancel({ sessionId: hit[0] }) } catch { /* not working */ }
+    try { ctx.sessionController.cancel({ sessionId: hit[0] as SessionId }) } catch { /* not working */ }
     return { status: 200, value: { ok: true } }
   }
 
   /** Drop a team's messages from this VM's log. */
   async function forgetLog(team: string) {
-    let text = ''
+    let text: string
     try { text = await readFile(logFile(), 'utf8') } catch { return }
     const keep = text.split('\n').filter(line => {
       if (!line) return false
@@ -690,7 +710,7 @@ export function apply(ctx: any) {
   }
 
   /** A member on another VM using the board. */
-  async function tasksRoute(v: any, req?: IncomingMessage): Promise<Reply> {
+  async function tasksRoute(v: TasksBody, req?: IncomingMessage): Promise<Reply> {
     await load()
     if (!TEAM.test(v?.team) || !NAME.test(v?.from) || !VM.test(v?.fromVm)) return { status: 400, value: { error: 'invalid request' } }
     if (!req || !(await fromVm(req, v.fromVm))) return { status: 403, value: { error: 'the request does not come from the VM it names' } }
@@ -702,7 +722,7 @@ export function apply(ctx: any) {
   }
 
   async function readLog(team: string | null): Promise<LogLine[]> {
-    let text = ''
+    let text: string
     try { text = await readFile(logFile(), 'utf8') } catch { return [] }
     const out: LogLine[] = []
     for (const line of text.split('\n').slice(-2000)) {
@@ -711,7 +731,7 @@ export function apply(ctx: any) {
     return out
   }
 
-  const routes: Record<string, { method: string, handle: (v: any, req: IncomingMessage) => Promise<Reply> }> = {
+  const routes: Record<string, { method: string, handle: (v: PeerBody, req: IncomingMessage) => Promise<Reply> }> = {
     '/idea-team/inbox': { method: 'POST', handle: inbox },
     '/idea-team/spawn': { method: 'POST', handle: spawn },
     '/idea-team/roster': { method: 'POST', handle: roster },
@@ -729,7 +749,7 @@ export function apply(ctx: any) {
         if (!(await hasTeamToken(req))) { res.statusCode = 401; res.end(); return }
         try {
           const v = route.method === 'POST' ? await body(req) : undefined
-          const r = await route.handle(v, req)
+          const r = await route.handle(v as PeerBody, req)
           send(res, r.status, r.value)
         } catch (e) {
           const err = e as { status?: number, message?: string }
@@ -744,7 +764,7 @@ export function apply(ctx: any) {
   // peer): stop one teammate (on the lead's VM), or delete a team (on every
   // VM: its members here stop, and its roster and messages are forgotten).
   // The agents' sessions stay, with everything they did.
-  const owner: Record<string, (v: any) => Promise<Reply>> = {
+  const owner: Record<string, (v: StopBody) => Promise<Reply>> = {
     '/idea-team/owner/stop': async v => {
       if (!TEAM.test(v?.team) || !NAME.test(v?.name) || v.name === LEAD) return { status: 400, value: { error: 'invalid team or name' } }
       await load()
@@ -770,7 +790,7 @@ export function apply(ctx: any) {
         delete state.local[session]
         if (l.name !== LEAD) {
           stopped++
-          try { ctx.sessionController.cancel({ sessionId: session }) } catch { /* not working */ }
+          try { ctx.sessionController.cancel({ sessionId: session as SessionId }) } catch { /* not working */ }
         }
       }
       delete state.led[team]
@@ -791,7 +811,7 @@ export function apply(ctx: any) {
         if (rejection !== undefined) { res.statusCode = rejection; res.end(); return }
         if (!String(req.headers['content-type'] || '').startsWith('application/json')) { send(res, 415, { error: 'JSON only' }); return }
         try {
-          const r = await handle(await body(req))
+          const r = await handle(await body(req) as StopBody)
           send(res, r.status, r.value)
         } catch (e) {
           const err = e as { status?: number, message?: string }

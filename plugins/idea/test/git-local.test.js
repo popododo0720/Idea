@@ -1,9 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, writeFile, symlink, mkdir } from 'node:fs/promises'
+import { writeFile, symlink, mkdir, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseStatus, parseLog, newFileDiff, git, createLocalGit } from '../lib/git-local.js'
+import { tempDir } from './helpers.js'
 
 test('parseStatus reads the branch, changes, renames, conflicts and new files', () => {
   const text = [
@@ -39,11 +40,11 @@ test('parseLog splits records and fields', () => {
   assert.equal(out[1].refs, '')
 })
 
-test('newFileDiff shows a new file and refuses paths outside the repository', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'idea-git-'))
+test('newFileDiff shows a new file and refuses paths outside the repository', async t => {
+  const root = tempDir(t, 'idea-git-')
   await writeFile(join(root, 'a.txt'), 'one\ntwo\n')
   await writeFile(join(root, 'bin'), Buffer.from([1, 0, 2]))
-  const outside = await mkdtemp(join(tmpdir(), 'idea-out-'))
+  const outside = tempDir(t, 'idea-out-')
   await writeFile(join(outside, 'secret'), 'x')
   await symlink(join(outside, 'secret'), join(root, 'link'))
   assert.equal((await newFileDiff(root, 'a.txt')).diff, 'new file: a.txt\n@@ -0,0 +1,2 @@\n+one\n+two\n')
@@ -52,8 +53,8 @@ test('newFileDiff shows a new file and refuses paths outside the repository', as
   await assert.rejects(newFileDiff(root, 'link'), /invalid path/)
 })
 
-test('a repository is changed by workspace id, with checked names', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'idea-repo-'))
+test('a repository is changed by workspace id, with checked names', async t => {
+  const root = tempDir(t, 'idea-repo-')
   await git(root, ['init', '-q', '-b', 'main'])
   await git(root, ['config', 'user.email', 't@example.com'])
   await git(root, ['config', 'user.name', 'T'])
@@ -77,4 +78,111 @@ test('a repository is changed by workspace id, with checked names', async () => 
   await assert.rejects(lg.act('w1', { op: 'deleteBranch', branch: 'a..b' }), /invalid branch/)
   await assert.rejects(lg.act('w1', { op: 'stage', paths: ['-A'] }), /invalid path/)
   await assert.rejects(lg.state('nope'), /no such workspace/)
+})
+
+async function repoWith(t, files) {
+  const root = tempDir(t, 'idea-act-')
+  await git(root, ['init', '-q', '-b', 'main'])
+  await git(root, ['config', 'user.email', 't@example.com'])
+  await git(root, ['config', 'user.name', 'T'])
+  for (const [f, text] of Object.entries(files)) await writeFile(join(root, f), text)
+  await git(root, ['add', '-A'])
+  await git(root, ['commit', '-q', '-m', 'base'])
+  return { root, lg: createLocalGit({ workspaces: () => [{ id: 'w', title: 'R', path: root }] }) }
+}
+
+test('discard, stash, merge and checkout change the real repository', async t => {
+  const { root, lg } = await repoWith(t, { 'a.txt': 'one\n' })
+  const read = f => readFile(join(root, f), 'utf8')
+
+  await writeFile(join(root, 'a.txt'), 'changed\n')
+  await writeFile(join(root, 'new.txt'), 'new\n')
+  let s = await lg.state('w')
+  assert.deepEqual(s.files.map(f => [f.path, f.untracked]), [['a.txt', false], ['new.txt', true]])
+  assert.match((await lg.diff('w', { kind: 'file', path: 'a.txt' })).diff, /-one\n\+changed/)
+  await lg.act('w', { op: 'discard', paths: ['a.txt'] })
+  assert.equal(await read('a.txt'), 'one\n')
+  await lg.act('w', { op: 'discard', paths: ['new.txt'], untracked: true })
+  assert.deepEqual((await lg.state('w')).files, [])
+
+  await writeFile(join(root, 'a.txt'), 'stashed\n')
+  await lg.act('w', { op: 'stash', message: 'wip' })
+  assert.equal(await read('a.txt'), 'one\n')
+  s = await lg.state('w')
+  assert.deepEqual(s.stashes.map(x => x.ref), ['stash@{0}'])
+  assert.match(s.stashes[0].subject, /wip/)
+  assert.match((await lg.diff('w', { kind: 'stash', ref: 'stash@{0}' })).diff, /\+stashed/)
+  await lg.act('w', { op: 'stashApply', ref: 'stash@{0}' })
+  assert.equal(await read('a.txt'), 'stashed\n')
+  await lg.act('w', { op: 'discard', paths: ['a.txt'] })
+  await lg.act('w', { op: 'stashPop', ref: 'stash@{0}' })
+  assert.equal(await read('a.txt'), 'stashed\n')
+  assert.deepEqual((await lg.state('w')).stashes, [])
+  await lg.act('w', { op: 'stash' })
+  await lg.act('w', { op: 'stashDrop', ref: 'stash@{0}' })
+  assert.deepEqual((await lg.state('w')).stashes, [])
+  await assert.rejects(lg.act('w', { op: 'stashPop', ref: 'stash@{0}; rm -rf /' }), /invalid stash/)
+  await assert.rejects(lg.diff('w', { kind: 'stash', ref: 'HEAD' }), /invalid stash/)
+
+  await lg.act('w', { op: 'createBranch', name: 'feature' })
+  await writeFile(join(root, 'b.txt'), 'b\n')
+  await lg.act('w', { op: 'stage', paths: ['b.txt'] })
+  assert.equal((await lg.state('w')).files[0].staged, true)
+  await lg.act('w', { op: 'unstage', paths: ['b.txt'] })
+  assert.equal((await lg.state('w')).files[0].staged, false)
+  await lg.act('w', { op: 'stageAll' })
+  await lg.act('w', { op: 'commit', message: 'add b' })
+  await lg.act('w', { op: 'checkout', branch: 'main' })
+  assert.equal((await lg.state('w')).head.branch, 'main')
+  await assert.rejects(readFile(join(root, 'b.txt')), { code: 'ENOENT' })
+  const merged = await lg.act('w', { op: 'merge', branch: 'feature' })
+  assert.equal(merged.ok, true)
+  assert.equal(await read('b.txt'), 'b\n')
+  await lg.act('w', { op: 'deleteBranch', branch: 'feature' })
+  assert.deepEqual((await lg.state('w')).branches.map(b => b.name), ['main'])
+
+  const [head] = (await lg.log('w', '')).commits
+  assert.equal(head.subject, 'add b')
+  await lg.act('w', { op: 'revert', sha: head.sha })
+  await assert.rejects(readFile(join(root, 'b.txt')), { code: 'ENOENT' })
+  await lg.act('w', { op: 'cherryPick', sha: head.short })
+  assert.equal(await read('b.txt'), 'b\n')
+  await assert.rejects(lg.act('w', { op: 'revert', sha: 'HEAD~1' }), /invalid commit/)
+  await assert.rejects(lg.act('w', { op: 'cherryPick', sha: '--abort' }), /invalid commit/)
+})
+
+test('changes refuse option-like paths, empty input and unknown kinds', async t => {
+  const { lg } = await repoWith(t, { 'a.txt': 'one\n' })
+  await assert.rejects(lg.diff('w', { kind: 'file', path: '--output=/tmp/x' }), /invalid path/)
+  await assert.rejects(lg.diff('w', { kind: 'file', path: '' }), /invalid path/)
+  await assert.rejects(lg.diff('w', { kind: 'commit', sha: 'HEAD' }), /invalid commit/)
+  await assert.rejects(lg.diff('w', { kind: 'tree' }), /kind: file, commit or stash/)
+  await assert.rejects(lg.act('w', { op: 'discard', paths: [] }), /paths/)
+  await assert.rejects(lg.act('w', { op: 'discard', paths: 'a.txt' }), /paths/)
+  await assert.rejects(lg.act('w', { op: 'unstage', paths: ['--', 'a.txt'] }), /invalid path/)
+  await assert.rejects(lg.act('w', { op: 'commit', message: '   ' }), /write a commit message/)
+  await assert.rejects(lg.act('w', { op: 'merge', branch: '-X' }), /invalid branch/)
+  await assert.rejects(lg.log('w', '--output=/tmp/x'), /invalid branch/)
+  const e = await lg.act('w', { op: 'checkout', branch: 'missing' }).catch(x => x)
+  assert.equal(e.status, 409, 'a git failure is a conflict with git\'s own words')
+})
+
+test('push, fetch and pull work against a local remote', async t => {
+  const remote = tempDir(t, 'idea-remote-')
+  await git(remote, ['init', '-q', '--bare', '-b', 'main'])
+  const { root, lg } = await repoWith(t, { 'a.txt': 'one\n' })
+  await git(root, ['remote', 'add', 'origin', remote])
+  await lg.act('w', { op: 'push' })
+  assert.equal((await lg.state('w')).head.upstream, 'origin/main', 'the first push sets the upstream')
+  const other = tempDir(t, 'idea-clone-')
+  await git(other, ['clone', '-q', remote, '.'])
+  await writeFile(join(root, 'a.txt'), 'two\n')
+  await lg.act('w', { op: 'stageAll' })
+  await lg.act('w', { op: 'commit', message: 'two' })
+  await lg.act('w', { op: 'push' })
+  const lg2 = createLocalGit({ workspaces: () => [{ id: 'c', title: 'C', path: other }] })
+  await lg2.act('c', { op: 'fetch' })
+  await lg2.act('c', { op: 'pull' })
+  assert.equal(await readFile(join(other, 'a.txt'), 'utf8'), 'two\n')
+  assert.ok((await lg2.state('c')).branches.some(b => b.remote && b.name === 'origin/main'))
 })

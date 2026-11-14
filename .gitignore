@@ -21,3 +21,6 @@ _out/
 
 # Copied in by controller/Dockerfile (go:embed)
 controller/design/
+
+# Development tools (package.json at the root)
+node_modules

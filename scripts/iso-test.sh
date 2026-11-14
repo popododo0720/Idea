@@ -38,11 +38,12 @@ case "${1:-}" in
     iso="${2:?usage: iso-test.sh create <iso>}"
     [ -s "$iso" ] || die "no such ISO: $iso"
     destroy
-    mkdir -p "$(dirname "$LOGF")"; : > "$LOGF"
+    mkdir -p "$(dirname "$LOGF")"
+    : >"$LOGF"
     if [ "$NET" = idea-static ] && ! net_exists idea-static; then
       # NAT to the outside, but no DHCP server: 192.168.124.0/24, gateway .1
       x="$(mktemp)"
-      cat > "$x" <<NETXML
+      cat >"$x" <<NETXML
 <network>
   <name>idea-static</name>
   <forward mode='nat'/>
@@ -51,7 +52,8 @@ case "${1:-}" in
   <ip address='192.168.124.1' netmask='255.255.255.0'/>
 </network>
 NETXML
-      virsh net-define "$x" >/dev/null; rm -f "$x"
+      virsh net-define "$x" >/dev/null
+      rm -f "$x"
     fi
     net_active "$NET" || virsh net-start "$NET" >/dev/null
     sysopt="size=${ISO_TEST_DISK_GB:-60},"
@@ -81,7 +83,10 @@ NETXML
       --serial "file,path=$LOGF" --noautoconsole >/dev/null
     log "$NAME started; console log: $LOGF"
     ;;
-  destroy) destroy; log "$NAME removed" ;;
+  destroy)
+    destroy
+    log "$NAME removed"
+    ;;
   ip)
     o="$(virsh net-dhcp-leases "$LIBVIRT_NETWORK" 2>/dev/null)" || exit 1
     awk -v m="$MAC" '$3 == m {sub(/\/.*/, "", $5); print $5}' <<<"$o" | tail -n 1

@@ -95,9 +95,11 @@ export function createSubscriptionsSync({ ctx, json, paired }) {
   let running = false
 
   async function run() {
-    if (running || !(await paired())) return
+    // Claimed before the first await, so two ticks never run side by side.
+    if (running) return
     running = true
     try {
+      if (!(await paired())) return
       const dir = await subsDir()
       if (!dir) return
       const auth = await readJson(join(dir, 'auth.json'))
@@ -127,10 +129,11 @@ export function createSubscriptionsSync({ ctx, json, paired }) {
     }
   }
 
-  const tick = () => { run().catch(e => ctx.logger.warn('idea: could not sync subscription sign-ins: %s', e && e.message)) }
+  // Resolves when the round is over; failures are logged, never thrown.
+  const tick = () => run().catch(e => ctx.logger.warn('idea: could not sync subscription sign-ins: %s', e && e.message))
   const timer = setInterval(tick, POLL_MS)
-  ctx.effect(() => () => clearInterval(timer), 'idea: subscriptions sync timer')
-  setTimeout(tick, 2_000)
+  const first = setTimeout(tick, 2_000)
+  ctx.effect(() => () => { clearInterval(timer); clearTimeout(first) }, 'idea: subscriptions sync timer')
 
   return {
     now: tick,

@@ -14,8 +14,8 @@
 window.__ModuleLoader__.load({
   id: "@popododo0720/dsh-idea",
   factory: (require) => {
-    var module = { exports: {} };
-    var exports = module.exports;
+    const module = { exports: {} };
+    const exports = module.exports;
     Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
     const React = require("react");
     const h = React.createElement;
@@ -743,7 +743,7 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
           onClick: () => setLogRef(logRef === b.name ? "" : b.name) },
           h("span", { className: "idea-dot" + (b.current ? " idea-dot-working" : ""), style: b.current ? null : { visibility: b.remote ? "hidden" : "visible" } }),
           h("span", { className: "idea-ellipsis idea-grow", style: b.current ? { fontWeight: 600 } : null }, b.name),
-          b.track ? h("span", { className: "idea-dim", style: { fontSize: "12px" } }, b.track.replace(/[\[\]]/g, "")) : null,
+          b.track ? h("span", { className: "idea-dim", style: { fontSize: "12px" } }, b.track.replace(/[[\]]/g, "")) : null,
           h("span", { className: "idea-acts" }, h(MoreMenu, { items: b.remote ? [
             { label: "Check out as a local branch", onSelect: () => act("checkout", { branch: b.name, remote: true }) },
             { label: "Merge into " + current, disabled: !current, onSelect: () => act("merge", { branch: b.name }, "Merge " + b.name + " into " + current + "?") },

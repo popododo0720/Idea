@@ -35,7 +35,8 @@ SETUP_LOCAL="$LOCAL_REPO/idea-talos-setup:$tag"
 INSTALLER="idea-installer:$tag"
 IMAGER="ghcr.io/siderolabs/imager:$TALOS_VERSION"
 B="$IDEA_DATA_DIR/iso/build"
-rm -rf "$B"; mkdir -p "$B/ext/patches" "$B/out"
+rm -rf "$B"
+mkdir -p "$B/ext/patches" "$B/out"
 
 # ---- 1. setup extension: scripts + talosctl + the config patches (no secrets)
 cp -r "$REPO_ROOT/images/talos/setup/." "$B/ext/"
@@ -46,10 +47,12 @@ if [ "$DEV" = 1 ]; then
   "$REPO_ROOT/scripts/render-bootstrap.sh" dev
   NAMESERVER_LIST="$(for n in $NAMESERVERS; do printf '  - address: %s\n' "$n"; done)"
   export NAMESERVER_LIST
+  # shellcheck disable=SC2016 # envsubst takes the variable names literally
   envsubst '${REGISTRY_ADDR}' \
-    < "$REPO_ROOT/images/talos/patches/host.yaml.tmpl" > "$B/ext/patches/20-host.yaml"
+    <"$REPO_ROOT/images/talos/patches/host.yaml.tmpl" >"$B/ext/patches/20-host.yaml"
+  # shellcheck disable=SC2016 # envsubst takes the variable names literally
   envsubst '${NAMESERVER_LIST}' \
-    < "$REPO_ROOT/images/talos/patches/resolvers.yaml.tmpl" > "$B/ext/patches/15-fallback-resolvers.yaml"
+    <"$REPO_ROOT/images/talos/patches/resolvers.yaml.tmpl" >"$B/ext/patches/15-fallback-resolvers.yaml"
   cp "$REPO_ROOT/_out/talos/bootstrap.yaml" "$B/ext/patches/30-bootstrap.yaml"
 else
   "$REPO_ROOT/scripts/render-bootstrap.sh" public
@@ -58,7 +61,7 @@ fi
 cp "$(command -v talosctl)" "$B/ext/talosctl"
 [ "$(talosctl version --client --short 2>/dev/null | grep -o 'v[0-9.]*' | head -n 1)" = "$TALOS_VERSION" ] \
   || die "talosctl on this host is not $TALOS_VERSION"
-cat > "$B/ext/setup.env" <<ENV
+cat >"$B/ext/setup.env" <<ENV
 CLUSTER_NAME=$CLUSTER_NAME
 KUBERNETES_VERSION=${KUBERNETES_VERSION#v}
 INSTALLER_IMAGE=$IMAGE_REPO/$INSTALLER
@@ -79,8 +82,11 @@ imager() {
 
 # ---- 2. installer image with the same extensions (what ends up on disk)
 log "building $LOCAL_REPO/$INSTALLER"
-imager installer >"$B/imager.log" 2>&1 || { tail -n 20 "$B/imager.log" >&2; die "imager failed"; }
-podman load -q -i "$B/out/installer-amd64.tar" > "$B/loaded"
+imager installer >"$B/imager.log" 2>&1 || {
+  tail -n 20 "$B/imager.log" >&2
+  die "imager failed"
+}
+podman load -q -i "$B/out/installer-amd64.tar" >"$B/loaded"
 loaded="$(sed -n 's/^Loaded image[s]*: //p' "$B/loaded" | head -n 1)"
 [ -n "$loaded" ] || die "could not load the installer image"
 podman tag "$loaded" "$LOCAL_REPO/$INSTALLER"
@@ -104,7 +110,7 @@ if [ "$EMBED" = 1 ]; then
     echo '  - content: |'
     sed 's/^/      /' "$D/secrets.yaml"
     echo '    mountPath: /etc/idea/secrets.yaml'
-  } > "$B/out/machine.yaml"
+  } >"$B/out/machine.yaml"
   # Admin access for the builder, from the same secrets.
   talosctl gen config "$CLUSTER_NAME" https://127.0.0.1:6443 --with-secrets "$D/secrets.yaml" \
     --output-types talosconfig --output "$D/talosconfig" --force >/dev/null
@@ -114,7 +120,10 @@ if [ "$EMBED" = 1 ]; then
 fi
 
 log "building the ISO"
-imager iso "${args[@]}" >"$B/imager.log" 2>&1 || { tail -n 20 "$B/imager.log" >&2; die "imager failed"; }
+imager iso "${args[@]}" >"$B/imager.log" 2>&1 || {
+  tail -n 20 "$B/imager.log" >&2
+  die "imager failed"
+}
 rm -f "$B/out/machine.yaml"
 iso="$IDEA_DATA_DIR/iso/$name-amd64.iso"
 mv "$B/out/metal-amd64.iso" "$iso"

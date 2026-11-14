@@ -43,6 +43,11 @@ import { X509Certificate, createHash, timingSafeEqual } from 'node:crypto'
 import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import type { Context } from '@deepseek-ai/cordis'
+import type { CredentialKey, CredentialRef } from '@deepseek-ai/dsh-credentials'
+import type {} from '@deepseek-ai/dsh-client-connection'
+import type {} from '@deepseek-ai/dsh-host-webserver'
+import type {} from '@deepseek-ai/dsh-settings'
 
 export const name = 'idea-machine-sync'
 export const inject = ['webServer', 'connection', 'credentials', 'settings']
@@ -56,7 +61,7 @@ const CERT_FILE = process.env.IDEA_SYNC_CERT_FILE || '/etc/idea/tls/tls.crt'
 const NAMESPACES = ['llm-deepseek', 'llm-pi-ai', 'agent-default-model']
 // pstack's model per role (dsh-pstack).
 const PSTACK_MODELS = 'pstack-models.mdc'
-const DEEPSEEK_ACCOUNT = 'deepseek-account-platform/default'
+const DEEPSEEK_ACCOUNT = 'deepseek-account-platform/default' as CredentialKey
 const REF = /^[A-Za-z_][A-Za-z0-9_]*$/
 const PULL_MS = 30_000
 const SUBS_PROVIDERS = ['codex', 'claude', 'grok', 'copilot', 'antigravity']
@@ -254,8 +259,7 @@ async function pinnedJson(url: URL, method: string, token: string, body?: unknow
   })
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function apply(ctx: any) {
+export function apply(ctx: Context) {
   const source = process.env.IDEA_SYNC_SOURCE
 
   /** What a worker VM needs from this (the agent) dsh. */
@@ -270,7 +274,7 @@ export function apply(ctx: any) {
     const keys: Record<string, string> = {}
     for (const ref of refs) {
       try {
-        const hit = await ctx.credentials.resolve(ref)
+        const hit = await ctx.credentials.resolve(ref as CredentialRef)
         if (hit && typeof hit.value === 'string' && hit.value.length > 0) keys[ref] = hit.value
       } catch { /* unreadable: leave it out */ }
     }
@@ -300,10 +304,10 @@ export function apply(ctx: any) {
     }
     let written = 0, kept = 0
     for (const [key, rec] of entries) {
-      await ctx.credentials.modifyRecord(key, async (current: unknown) => {
+      await ctx.credentials.modifyRecord(key as CredentialKey, async (current: unknown) => {
         if (current && (current as Rec).kind === 'grant' && (rec as Rec).kind === 'grant' && expiresOf(current) > expiresOf(rec)) { kept++; return undefined }
         written++
-        return rec
+        return rec as Rec
       })
     }
     ctx.logger.info('idea: received %d sign-ins (%d kept newer here)', written, kept)
@@ -395,8 +399,8 @@ export function apply(ctx: any) {
       for (const [ref, value] of Object.entries(ex.keys || {})) {
         if (!REF.test(ref) || typeof value !== 'string' || !value) continue
         let cur: string | undefined
-        try { cur = (await ctx.credentials.resolve(ref))?.value } catch { /* none */ }
-        if (cur !== value) await ctx.credentials.set(ref, value)
+        try { cur = (await ctx.credentials.resolve(ref as CredentialRef))?.value } catch { /* none */ }
+        if (cur !== value) await ctx.credentials.set(ref as CredentialRef, value)
       }
       const rec = ex.records?.[DEEPSEEK_ACCOUNT]
       if (rec && valid(rec) && (rec as Rec).kind === 'grant') {

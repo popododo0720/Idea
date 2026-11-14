@@ -7,17 +7,30 @@ set -eu
 log() { echo "idea: $*"; }
 t() { /bin/talosctl --talosconfig /etc/idea/talosconfig -e 127.0.0.1 -n 127.0.0.1 "$@"; }
 
-[ -s /etc/idea/talosconfig ] || { log "talosconfig not mounted yet"; sleep 5; exit 1; }
+[ -s /etc/idea/talosconfig ] || {
+  log "talosconfig not mounted yet"
+  sleep 5
+  exit 1
+}
 
 n=0
 while :; do
   # On later boots etcd comes up by itself.
   # (The STATE line, not the event text: "Running pre state" is not running.)
   state="$(t service etcd 2>/dev/null | sed -n 's/^STATE  *//p' || true)"
-  if [ "$state" = Running ]; then log "etcd is running"; break; fi
-  if out="$(t bootstrap 2>&1)"; then log "etcd bootstrapped"; break; fi
+  if [ "$state" = Running ]; then
+    log "etcd is running"
+    break
+  fi
+  if out="$(t bootstrap 2>&1)"; then
+    log "etcd bootstrapped"
+    break
+  fi
   case "$out" in
-    *AlreadyExists*) log "etcd was bootstrapped before"; break ;;
+    *AlreadyExists*)
+      log "etcd was bootstrapped before"
+      break
+      ;;
   esac
   n=$((n + 1))
   [ $((n % 6)) -ne 1 ] || log "not ready yet: $(echo "$out" | tail -n 1)"

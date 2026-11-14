@@ -46,7 +46,7 @@ echo "container images -> $IMAGE_REPO"
 for i in "${images[@]}"; do
   podman image exists "$LOCAL_REPO/$i" || die "$LOCAL_REPO/$i is not built"
   printf '  %-42s %6s MB  %s\n' "$i" \
-    "$(( $(podman image inspect "$LOCAL_REPO/$i" --format '{{.Size}}') / 1000000 ))" \
+    "$(($(podman image inspect "$LOCAL_REPO/$i" --format '{{.Size}}') / 1000000))" \
     "$(podman image inspect "$LOCAL_REPO/$i" --format '{{.Id}}' | cut -c1-12)"
 done
 echo
@@ -56,17 +56,24 @@ echo
 echo "ISO              -> GitHub release v$IDEA_VERSION of ${SOURCE_URL#https://github.com/}"
 [ -s "$iso" ] || die "$iso is not built (scripts/build-iso.sh)"
 printf '  %s  %s MB\n  sha256 %s\n' "$(basename "$iso")" \
-  "$(( $(stat -c %s "$iso") / 1000000 ))" "$(sha256sum "$iso" | cut -d' ' -f1)"
+  "$(($(stat -c %s "$iso") / 1000000))" "$(sha256sum "$iso" | cut -d' ' -f1)"
 echo
 
 # ---- gates
 if [ -n "$(git status --porcelain)" ]; then
-  [ "$LIST" = 1 ] && echo "note: the git tree has uncommitted changes" || die "the git tree has uncommitted changes"
+  if [ "$LIST" = 1 ]; then
+    echo "note: the git tree has uncommitted changes"
+  else
+    die "the git tree has uncommitted changes"
+  fi
 fi
 git fetch -q origin
 if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main 2>/dev/null)" ]; then
-  [ "$LIST" = 1 ] && echo "note: HEAD is not on origin/main yet; push the commits before publishing" \
-    || die "HEAD is not what origin/main has: push the commits first"
+  if [ "$LIST" = 1 ]; then
+    echo "note: HEAD is not on origin/main yet; push the commits before publishing"
+  else
+    die "HEAD is not what origin/main has: push the commits first"
+  fi
 fi
 "$REPO_ROOT/scripts/check-secrets.sh"
 for i in "${images[@]:0:3}"; do
@@ -78,9 +85,13 @@ done
 "$REPO_ROOT/scripts/check-image.sh" "$LOCAL_REPO/idea-talos-setup:$installer_tag" >/dev/null \
   || die "image scan failed: idea-talos-setup"
 echo "ok:   image scan idea-talos-setup:$installer_tag"
-case "$(basename "$iso")" in *secrets*|*dev*) die "refusing to publish a development ISO" ;; esac
+case "$(basename "$iso")" in *secrets* | *dev*) die "refusing to publish a development ISO" ;; esac
 
-[ "$LIST" = 0 ] || { echo; echo "nothing was published (--list)"; exit 0; }
+[ "$LIST" = 0 ] || {
+  echo
+  echo "nothing was published (--list)"
+  exit 0
+}
 
 # ---- publish
 owner="${IMAGE_REPO#ghcr.io/}"
@@ -102,7 +113,7 @@ DOCKER_CONFIG="$auth" flux push artifact "oci://$IMAGE_REPO/idea-deploy:$IDEA_VE
 DOCKER_CONFIG="$auth" flux tag artifact "oci://$IMAGE_REPO/idea-deploy:$IDEA_VERSION" --tag stable >/dev/null
 
 log "creating GitHub release v$IDEA_VERSION"
-sha256sum "$iso" | sed "s#  .*#  $(basename "$iso")#" > "$iso.sha256"
+sha256sum "$iso" | sed "s#  .*#  $(basename "$iso")#" >"$iso.sha256"
 gh release create "v$IDEA_VERSION" "$iso" "$iso.sha256" \
   --repo "${SOURCE_URL#https://github.com/}" --title "idea $IDEA_VERSION" \
   --notes "Installer ISO. Booting a machine from it erases its first disk and installs idea on it."

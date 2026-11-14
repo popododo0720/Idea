@@ -3,11 +3,15 @@
 # It is not part of the image because the Agent SDK it depends on is not
 # redistributable; the pod downloads it for itself.
 set -euo pipefail
+: "${DSH_VERSION:?}"
 
 patch="$HOME/.dsh/profiles/headless/cordis.patch.yml"
 grep -q '^- id: subagent-claude-code' "$patch" && exit 0
 
 dsh plugin --profile headless add "@deepseek-ai/dsh-subagent-claude-code@${DSH_VERSION}"
-{ echo; sed '/^#/d' /etc/idea/dsh/claude-subagent.patch.yml; } >> "$patch"
+{
+  echo
+  sed '/^#/d' /etc/idea/dsh/claude-subagent.patch.yml
+} >>"$patch"
 rm -rf "$HOME/.cache" "$HOME/.npm" "$HOME/.local/share/pnpm"
 echo "installed"

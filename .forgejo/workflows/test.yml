@@ -1,5 +1,6 @@
 # Test gate on the idea machine itself: a pull request is merged only when
 # this passes. Runs on the machine's runner (a Kata pod, worker image).
+# Each step is one step of scripts/ci.sh, so a failure names what failed.
 on:
   pull_request:
   push:
@@ -16,7 +17,19 @@ jobs:
           git clone -q "http://forgejo-http.idea-system.svc:3000/${{ github.repository }}.git" src
           cd src
           git checkout -q "${{ github.event.pull_request.head.sha || github.sha }}"
-      - name: Test
-        run: |
-          cd src
-          scripts/ci.sh
+      - name: Set up tools
+        run: src/scripts/ci.sh setup
+      - name: Go
+        run: src/scripts/ci.sh go
+      - name: JavaScript and TypeScript
+        run: src/scripts/ci.sh js
+      - name: Shell scripts
+        run: src/scripts/ci.sh shell
+      - name: Workflows
+        run: src/scripts/ci.sh workflows
+      - name: Kubernetes manifests
+        run: src/scripts/ci.sh manifests
+      - name: Dockerfiles
+        run: src/scripts/ci.sh docker
+      - name: Secrets
+        run: src/scripts/ci.sh secrets

@@ -19,7 +19,7 @@ mkdir -p "$IDEA_DATA_DIR"/{vm,iso,registry,build,notes,dl}
 # anywhere else) is left alone.
 pkgs=()
 for cp in curl:curl git:git jq:jq envsubst:gettext-base qemu-system-x86_64:qemu-system-x86 \
-          virsh:libvirt-daemon-system virt-install:virtinst podman:podman; do
+  virsh:libvirt-daemon-system virt-install:virtinst podman:podman; do
   command -v "${cp%%:*}" >/dev/null 2>&1 || pkgs+=("${cp#*:}")
 done
 if [ "${#pkgs[@]}" -gt 0 ]; then
@@ -35,7 +35,7 @@ systemctl is-active --quiet libvirtd.socket libvirtd.service 2>/dev/null \
 # podman keeps images under the data dir, never under /var/lib.
 if [ ! -e /etc/containers/storage.conf ]; then
   log "podman storage -> $IDEA_DATA_DIR/build"
-  cat > /etc/containers/storage.conf <<EOF
+  cat >/etc/containers/storage.conf <<EOF
 [storage]
 driver = "overlay"
 graphroot = "$IDEA_DATA_DIR/build"
@@ -43,7 +43,7 @@ runroot = "/run/containers/storage"
 EOF
 fi
 mkdir -p /etc/containers/registries.conf.d
-cat > /etc/containers/registries.conf.d/idea.conf <<EOF
+cat >/etc/containers/registries.conf.d/idea.conf <<EOF
 [[registry]]
 location = "$REGISTRY_ADDR"
 insecure = true
@@ -53,7 +53,8 @@ EOF
 # fetch <name> <version> <url> <checksum-url> : download once, verify sha256.
 fetch() {
   local name=$1 ver=$2 url=$3 sumurl=$4 dir file want got
-  dir="$DL/$name-$ver"; file="$dir/${url##*/}"
+  dir="$DL/$name-$ver"
+  file="$dir/${url##*/}"
   mkdir -p "$dir"
   if [ ! -s "$file" ]; then
     log "download $name $ver"
@@ -70,7 +71,7 @@ fetch() {
 }
 
 installed() { [ "$(cat "$DL/.installed-$1" 2>/dev/null)" = "$2" ] && [ -x "$3" ]; }
-mark()      { echo "$2" > "$DL/.installed-$1"; }
+mark() { echo "$2" >"$DL/.installed-$1"; }
 
 # install_tar <name> <version> <url> <checksum-url> <member-in-tar> [target]
 install_tar() {
@@ -163,7 +164,7 @@ if ! net_exists "$LIBVIRT_NETWORK"; then
   fi
   log "defining libvirt network $LIBVIRT_NETWORK ($NETWORK_CIDR)"
   netxml="$(mktemp)"
-  cat > "$netxml" <<NETXML
+  cat >"$netxml" <<NETXML
 <network>
   <name>$LIBVIRT_NETWORK</name>
   <forward mode='nat'/>
@@ -197,7 +198,7 @@ case "$REGISTRY_ADDR" in
 esac
 
 mkdir -p /etc/idea
-cat > /etc/idea/registry.yml <<EOF
+cat >/etc/idea/registry.yml <<EOF
 version: 0.1
 log:
   level: info
@@ -210,7 +211,7 @@ http:
   addr: $REGISTRY_ADDR
 EOF
 
-cat > /etc/systemd/system/idea-registry.service <<EOF
+cat >/etc/systemd/system/idea-registry.service <<EOF
 [Unit]
 Description=idea local OCI registry (libvirt bridge only)
 After=libvirtd.service network-online.target

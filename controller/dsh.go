@@ -16,7 +16,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,7 +34,7 @@ import (
 
 const (
 	dshSelector  = "idea.dev/agent=dsh"
-	dshTLSSecret = "idea-dsh-tls"
+	dshTLSSecret = "idea-dsh-tls" //nolint:gosec // G101: a Secret name, not a credential
 	// The authority every client sends (dsh's --trusted-host).
 	dshAuthority = "idea-dsh.idea-work.svc:4443"
 	// Where projects live inside the agent dsh (its persistent volume).
@@ -97,10 +96,12 @@ func (d *dshClient) httpClient(ctx context.Context) (*http.Client, error) {
 		Timeout: 60 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				MinVersion:         tls.VersionTLS12,
-				InsecureSkipVerify: true, // replaced by the exact-certificate check below
-				VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
-					if len(raw) == 0 || !bytes.Equal(raw[0], want) {
+				MinVersion: tls.VersionTLS12,
+				// The CA check is replaced by the exact-certificate check below.
+				InsecureSkipVerify: true, //nolint:gosec // G402: the certificate is pinned in VerifyConnection
+				// VerifyConnection also runs on resumed sessions.
+				VerifyConnection: func(cs tls.ConnectionState) error {
+					if len(cs.PeerCertificates) == 0 || !bytes.Equal(cs.PeerCertificates[0].Raw, want) {
 						return errors.New("agent dsh presented an unexpected certificate")
 					}
 					return nil
@@ -183,7 +184,7 @@ func (d *dshClient) session(ctx context.Context, fresh bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(ctx, "GET",
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		"https://"+d.authority+"/connect?token="+token+"&interactions=none", nil)
 	if err != nil {
 		return "", err
@@ -233,7 +234,7 @@ func (d *dshClient) callArgs(ctx context.Context, method string, args map[string
 		if err != nil {
 			return err
 		}
-		req, err := http.NewRequestWithContext(ctx, "POST", "https://"+d.authority+"/api/"+method, bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://"+d.authority+"/api/"+method, bytes.NewReader(body))
 		if err != nil {
 			return err
 		}
@@ -289,10 +290,10 @@ func (d *dshClient) ensureWorkspace(ctx context.Context, project string) (string
 	err := d.call(ctx, "workspace/create", map[string]string{"path": path}, &out)
 	if isRemote(err, "workspace/invalid-path") {
 		var created string
-		err := d.callArgs(ctx, "directoryPicker/createDirectory",
+		derr := d.callArgs(ctx, "directoryPicker/createDirectory",
 			map[string]any{"path": dshProjects, "name": project}, &created)
-		if err != nil && !isRemote(err, "directory-picker/exists") {
-			return "", fmt.Errorf("project directory: %w", err)
+		if derr != nil && !isRemote(derr, "directory-picker/exists") {
+			return "", fmt.Errorf("project directory: %w", derr)
 		}
 		err = d.call(ctx, "workspace/create", map[string]string{"path": path}, &out)
 	}

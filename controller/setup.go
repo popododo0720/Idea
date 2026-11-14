@@ -38,7 +38,7 @@ const (
 	setupSecretNS   = "kube-system"
 	setupSecretName = "idea-setup"
 	modelKeysSecret = "idea-model-keys"
-	apiCertSecret   = "idea-api-tls"
+	apiCertSecret   = "idea-api-tls" //nolint:gosec // G101: a Secret name, not a credential
 )
 
 // The design system (console/design), copied next to the sources by the
@@ -62,6 +62,9 @@ func normalizeCode(s string) string {
 	return strings.ToLower(strings.NewReplacer("-", "", " ", "").Replace(strings.TrimSpace(s)))
 }
 
+// wrongCodeDelay is what a wrong setup code costs the caller (tests set it to 0).
+var wrongCodeDelay = time.Second
+
 // checkCode reports whether the submitted code is the machine's. A wrong
 // code costs the caller a second, which is enough against guessing.
 func (c *Controller) checkCode(ctx context.Context, given string) (talosconfig string, ok bool, err error) {
@@ -71,7 +74,7 @@ func (c *Controller) checkCode(ctx context.Context, given string) (talosconfig s
 	}
 	a, b := normalizeCode(given), normalizeCode(want)
 	if b == "" || subtle.ConstantTimeCompare([]byte(a), []byte(b)) != 1 {
-		time.Sleep(time.Second)
+		time.Sleep(wrongCodeDelay)
 		return "", false, nil
 	}
 	return tc, true, nil
@@ -259,7 +262,7 @@ func (c *Controller) setupHandler() http.Handler {
 		w.Header().Set("Content-Type", "application/yaml")
 		w.Header().Set("Content-Disposition", `attachment; filename="talosconfig"`)
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write([]byte(tc))
+		_, _ = w.Write([]byte(tc)) //nolint:gosec // G705: a YAML download, not HTML
 	})
 	return http.MaxBytesHandler(mux, 64<<10)
 }

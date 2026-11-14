@@ -543,7 +543,7 @@ func (f *Forgejo) SyncPushMirrors(ctx context.Context, repo string) error {
 
 // Raw returns a text response (a diff) of the API.
 func (f *Forgejo) Raw(ctx context.Context, path string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", f.base+"/api/v1"+path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.base+"/api/v1"+path, nil)
 	if err != nil {
 		return "", err
 	}

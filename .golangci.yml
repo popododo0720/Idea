@@ -1,0 +1,44 @@
+# golangci-lint for the controller (controller/). Run by scripts/ci.sh.
+version: "2"
+run:
+  timeout: 15m # a cold cache on the 2-CPU runner takes longer than 5m
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose
+    - errorlint
+    - gocritic
+    - gosec
+    - misspell
+    - nilerr
+    - noctx
+    - nolintlint
+    - unconvert
+    - unparam
+    - usestdlibvars
+  settings:
+    gosec:
+      excludes:
+        - G104 # unhandled errors: errcheck reports these, with the standard exclusions
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment # readability over struct packing
+        - shadow # err shadowing is the Go idiom here
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      # The controller calls the in-cluster services it is configured with
+      # (Forgejo, the agent dsh); request input only picks a checked path.
+      - linters: [gosec]
+        text: "G704: SSRF via taint analysis"
+      - path: _test\.go
+        linters: [gosec, noctx, bodyclose]
+formatters:
+  enable:
+    - gofmt
+    - goimports
