@@ -127,6 +127,8 @@ type Controller struct {
 	// Repository copies of projects (projects.go): "" done, else what to show.
 	importMu sync.Mutex
 	imports  map[string]string
+	// mirrorSynced: when each project's push mirror was last synced (publish.go).
+	mirrorSynced map[string]time.Time
 }
 
 func b64(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
@@ -204,6 +206,7 @@ func main() {
 	go c.loop(ctx, "issue-sweep", 60*time.Second, c.sweepIssues)
 	go c.loop(ctx, "tasks", 5*time.Second, c.reconcileTasks)
 	go c.loop(ctx, "workers", 15*time.Second, c.workers.reconcile)
+	go c.loop(ctx, "publish", 60*time.Second, c.publishAll)
 
 	slog.Info("controller started", "org", cfg.Org, "host", cfg.Host, "gate", cfg.GateMode)
 	<-ctx.Done()
@@ -393,7 +396,7 @@ func (c *Controller) reconcileForgejo(ctx context.Context) error {
 		return fmt.Errorf("agent dsh certificate: %w", err)
 	}
 	for _, p := range projects {
-		if err := c.reconcileProject(ctx, p); err != nil {
+		if err := c.reconcileProject(ctx, &p); err != nil {
 			slog.Warn("project", "project", p.Name, "err", err.Error())
 			c.setProjectStatus(ctx, p, false, err.Error())
 			continue

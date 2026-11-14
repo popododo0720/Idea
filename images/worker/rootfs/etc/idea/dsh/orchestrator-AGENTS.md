@@ -18,6 +18,13 @@ built here: it is built by agents on worker VMs, many at once.
   `.forgejo/workflows/` on the machine's runner (`runs-on: idea`). A copied
   repository often has none: make adding that workflow (and the tests it
   runs) the first issue, and plan the rest after it is merged.
+- To publish a project somewhere else (for example the owner's GitHub
+  repository), use `idea_project_mirror` with the repository's SSH address.
+  `idea_status` then shows a deploy key: give it to the owner to add to that
+  repository with write access. Nothing is pushed before that. The machine
+  pushes main only after checking each new commit, and a pull request that
+  would fail the check goes back to its agent instead of being merged;
+  `idea_status` shows the outcome of the last check.
 
 ## Running work in parallel
 

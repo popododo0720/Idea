@@ -9,7 +9,8 @@
 #   2. no "kind: Secret" manifest under deploy/
 #   3. no real value from $IDEA_SECRETS_DIR appears in the repo
 #   4. no string from $IDEA_SECRETS_DIR/private-strings appears in the repo
-#   5. commit author/committer e-mails are GitHub noreply addresses
+#   5. commit author/committer e-mails are GitHub noreply addresses (or the
+#      idea machine's bots)
 #
 # Pipelines use `grep -c >/dev/null`, not `grep -q`: under pipefail an early
 # exit of grep would kill the producer and turn a hit into a miss.
@@ -148,7 +149,10 @@ else
 fi
 
 # ------------------------------------------------ 5. commit e-mails
-noreply='@users\.noreply\.github\.com$'
+# GitHub noreply addresses, and the idea machine's own bots (its agents and
+# the Forgejo user that merges), whose work reaches GitHub through the push
+# mirror (controller/publish.go uses the same list).
+noreply='(@users\.noreply\.github\.com|^idea-worker@idea\.internal|^idea-admin@idea\.internal)$'
 if [ "$MODE" = staged ]; then
   mails="$(git var GIT_AUTHOR_IDENT; git var GIT_COMMITTER_IDENT)"
   mails="$(echo "$mails" | sed -E 's/.*<([^>]*)>.*/\1/' | sort -u)"

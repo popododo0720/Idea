@@ -7,6 +7,7 @@ package main
 // agent dsh may reach this port (deploy/apps/dsh network policy).
 //
 //	POST /agent/projects  {"name", "description", "import"}  -> project
+//	POST /agent/projects/{name}/mirror  {"url", "allowedEmails"}  -> project
 //	GET  /agent/status    -> projects, worker VMs, tasks
 
 import (
@@ -16,6 +17,8 @@ import (
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 // agentAuthorized checks the team token; it answers 401 itself when not.
@@ -72,6 +75,73 @@ func (c *Controller) agentMux(mux *http.ServeMux) {
 			return
 		}
 		writeJSON(w, 201, p)
+	})
+
+	mux.HandleFunc("POST /agent/projects/{name}/mirror", func(w http.ResponseWriter, r *http.Request) {
+		if !c.agentAuthorized(w, r) {
+			return
+		}
+		var in struct {
+			URL           string   `json:"url"`
+			AllowedEmails []string `json:"allowedEmails"`
+		}
+		if err := readBody(r, &in); err != nil {
+			writeError(w, 400, err.Error())
+			return
+		}
+		in.URL = strings.TrimSpace(in.URL)
+		if in.URL != "" && (len(in.URL) > 300 || !mirrorURL.MatchString(in.URL)) {
+			writeError(w, 400, "url: an SSH address such as git@github.com:owner/repo.git")
+			return
+		}
+		if len(in.AllowedEmails) > 20 {
+			writeError(w, 400, "allowedEmails: at most 20 patterns")
+			return
+		}
+		for _, e := range in.AllowedEmails {
+			if len(e) > 200 {
+				writeError(w, 400, "allowedEmails: a pattern is too long")
+				return
+			}
+		}
+		if _, err := mailRules(in.AllowedEmails); err != nil {
+			writeError(w, 400, err.Error())
+			return
+		}
+		name := r.PathValue("name")
+		if !projectName.MatchString(name) {
+			writeError(w, 404, "no such project")
+			return
+		}
+		res := c.dyn.Resource(projectGVR).Namespace(c.cfg.SystemNS)
+		u, err := res.Get(r.Context(), name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			writeError(w, 404, "no such project")
+			return
+		}
+		if err != nil {
+			writeError(w, 500, err.Error())
+			return
+		}
+		if in.URL == "" {
+			unstructured.RemoveNestedField(u.Object, "spec", "mirror")
+		} else {
+			m := map[string]any{"url": in.URL}
+			if len(in.AllowedEmails) > 0 {
+				l := make([]any, len(in.AllowedEmails))
+				for i, e := range in.AllowedEmails {
+					l[i] = e
+				}
+				m["allowedEmails"] = l
+			}
+			_ = unstructured.SetNestedField(u.Object, m, "spec", "mirror")
+		}
+		u, err = res.Update(r.Context(), u, metav1.UpdateOptions{})
+		if err != nil {
+			writeError(w, 500, err.Error())
+			return
+		}
+		writeJSON(w, 200, c.projectOf(u))
 	})
 
 	mux.HandleFunc("GET /agent/status", func(w http.ResponseWriter, r *http.Request) {

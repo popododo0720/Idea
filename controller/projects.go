@@ -40,9 +40,17 @@ type project struct {
 	Description string `json:"description,omitempty"`
 	Seed        string `json:"seed,omitempty"`
 	Import      string `json:"import,omitempty"` // public Git URL copied once
-	Ready       bool   `json:"ready"`
-	Message     string `json:"message,omitempty"`
-	URL         string `json:"url"`
+	// Mirror (publish.go): where main is published, if anywhere.
+	Mirror        string   `json:"mirror,omitempty"`
+	AllowedEmails []string `json:"allowedEmails,omitempty"`
+	MirrorKey     string   `json:"mirrorKey,omitempty"` // public SSH key to add to the mirror
+	mirrorURL     string   // the mirror status.mirrorKey belongs to
+	mirrorError   string   // Forgejo's last error pushing to the mirror
+	Published     string   `json:"published,omitempty"`
+	Publish       string   `json:"publish,omitempty"` // last publish outcome
+	Ready         bool     `json:"ready"`
+	Message       string   `json:"message,omitempty"`
+	URL           string   `json:"url"`
 }
 
 func (c *Controller) projectOf(u *unstructured.Unstructured) project {
@@ -51,6 +59,12 @@ func (c *Controller) projectOf(u *unstructured.Unstructured) project {
 	p.Description, _, _ = unstructured.NestedString(u.Object, "spec", "description")
 	p.Seed, _, _ = unstructured.NestedString(u.Object, "spec", "seed")
 	p.Import, _, _ = unstructured.NestedString(u.Object, "spec", "import")
+	p.Mirror, _, _ = unstructured.NestedString(u.Object, "spec", "mirror", "url")
+	p.AllowedEmails, _, _ = unstructured.NestedStringSlice(u.Object, "spec", "mirror", "allowedEmails")
+	p.MirrorKey, _, _ = unstructured.NestedString(u.Object, "status", "mirrorKey")
+	p.mirrorURL, _, _ = unstructured.NestedString(u.Object, "status", "mirrorUrl")
+	p.Published, _, _ = unstructured.NestedString(u.Object, "status", "published")
+	p.Publish, _, _ = unstructured.NestedString(u.Object, "status", "publish")
 	p.Ready, _, _ = unstructured.NestedBool(u.Object, "status", "ready")
 	p.Message, _, _ = unstructured.NestedString(u.Object, "status", "message")
 	p.URL = "https://" + c.cfg.Host + "/git/" + p.Repo
@@ -91,6 +105,10 @@ func (c *Controller) projectForRepo(ctx context.Context, fullName string) (*proj
 // no credentials, no query. Forgejo itself refuses private addresses.
 var importURL = regexp.MustCompile(`^https://[A-Za-z0-9.-]+(:[0-9]+)?/[A-Za-z0-9._~/-]+$`)
 
+// mirrorURL is where a project may be published: an SSH address (the
+// controller authenticates with a deploy key Forgejo makes).
+var mirrorURL = regexp.MustCompile(`^(ssh://)?[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?[:/][A-Za-z0-9_~][A-Za-z0-9._~/-]*$`)
+
 func (c *Controller) createProject(ctx context.Context, name, description, seed, from string) (project, error) {
 	spec := map[string]any{"description": description}
 	if seed != "" {
@@ -115,14 +133,23 @@ func (c *Controller) createProject(ctx context.Context, name, description, seed,
 
 // reconcileProject keeps one project's repository as declared: created (and
 // seeded once, when the project names an example), the worker as a
-// collaborator, the webhook in place.
-func (c *Controller) reconcileProject(ctx context.Context, p project) error {
+// collaborator, the webhook and the mirror in place. It updates p.obj when it
+// writes the project's status.
+func (c *Controller) reconcileProject(ctx context.Context, p *project) error {
 	org, name := c.cfg.Org, p.Name
 	if p.Import != "" {
 		// Copied once, when the repository does not exist yet, outside this
 		// loop: a large copy must not hold up the other projects.
-		if msg, busy := c.importing(org, name, p); busy {
+		if msg, busy := c.importing(org, name, *p); busy {
 			return errors.New(msg)
+		}
+		// Deleted since it was copied: copy it again rather than make an
+		// empty one.
+		if err := c.fj.do(ctx, "GET", "/repos/"+org+"/"+name, nil, nil); isStatus(err, 404) {
+			c.importMu.Lock()
+			delete(c.imports, org+"/"+name)
+			c.importMu.Unlock()
+			return errors.New("the repository is gone; copying it again from " + p.Import)
 		}
 	}
 	repo, err := c.fj.EnsureRepo(ctx, org, name)
@@ -149,6 +176,11 @@ func (c *Controller) reconcileProject(ctx context.Context, p project) error {
 	}
 	if err := c.fj.EnsureCollaborator(ctx, org, name, workerUser); err != nil {
 		return fmt.Errorf("collaborator: %w", err)
+	}
+	if p.Mirror != "" {
+		if err := c.reconcileMirror(ctx, p); err != nil {
+			return fmt.Errorf("mirror: %w", err)
+		}
 	}
 	created, err := c.fj.EnsureWebhook(ctx, org, name, c.cfg.WebhookTarget, c.cfg.WebhookSecret)
 	if err != nil {

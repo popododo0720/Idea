@@ -34,6 +34,11 @@ rules:
     resources: ["secrets"]
     resourceNames: ["idea-model-keys", "idea-devices", "idea-api-tls"]
     verbs: ["get", "update"]
+  # What must not be published (publish.go); put in place by the owner.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["idea-private-strings"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
