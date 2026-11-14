@@ -27,9 +27,9 @@
 // signs in on them. This plugin moves the models on from the agent dsh:
 //
 // - On the agent dsh, `GET /idea-sync/export` answers everything a worker
-//   needs: the `llm-deepseek` and `llm-pi-ai` settings sections, the keys
-//   they reference, the DeepSeek account sign-in and the subscription
-//   sign-ins. Only a caller presenting the shared token
+//   needs: the `llm-deepseek`, `llm-pi-ai` and `agent-default-model`
+//   settings sections, the keys they reference, the DeepSeek account
+//   sign-in, the subscription sign-ins and pstack's per-role models. Only a caller presenting the shared token
 //   (`/etc/idea/sync/token`, Secret `idea-sync`, made by the controller) gets
 //   it; the same token may also send refreshed subscription sessions to
 //   `PUT /idea-sync/subscriptions`.
@@ -52,7 +52,10 @@ const SUBS_PATH = '/idea-sync/subscriptions'
 const EXPORT_PATH = '/idea-sync/export'
 const TOKEN_FILE = process.env.IDEA_SYNC_TOKEN_FILE || '/etc/idea/sync/token'
 const CERT_FILE = process.env.IDEA_SYNC_CERT_FILE || '/etc/idea/tls/tls.crt'
-const NAMESPACES = ['llm-deepseek', 'llm-pi-ai']
+// Model settings a worker VM takes over: provider routes and the default model.
+const NAMESPACES = ['llm-deepseek', 'llm-pi-ai', 'agent-default-model']
+// pstack's model per role (dsh-pstack).
+const PSTACK_MODELS = 'pstack-models.mdc'
 const DEEPSEEK_ACCOUNT = 'deepseek-account-platform/default'
 const REF = /^[A-Za-z_][A-Za-z0-9_]*$/
 const PULL_MS = 30_000
@@ -215,6 +218,7 @@ type Export = {
   records: Record<string, unknown>
   auth: Store
   providerSettings?: unknown
+  pstackModels?: string
 }
 
 /** One JSON request to the agent dsh, TLS pinned to the machine's certificate. */
@@ -277,7 +281,13 @@ export function apply(ctx: any) {
     } catch { /* none */ }
     const auth = cleanStore(await readJsonFile(subsFile('auth.json')))
     const providerSettings = await readJsonFile(subsFile('provider-settings.json'))
-    return { sections, keys, records, auth, ...(providerSettings ? { providerSettings } : {}) }
+    let pstackModels: string | undefined
+    try { pstackModels = await readFile(join(dshHome(), PSTACK_MODELS), 'utf8') } catch { /* none */ }
+    return {
+      sections, keys, records, auth,
+      ...(providerSettings ? { providerSettings } : {}),
+      ...(pstackModels !== undefined ? { pstackModels } : {}),
+    }
   }
   async function handle(req: IncomingMessage, res: ServerResponse) {
     if (req.method !== 'PUT') { send(res, 405, { error: 'PUT only' }); return }
@@ -399,6 +409,12 @@ export function apply(ctx: any) {
       if (ex.providerSettings && typeof ex.providerSettings === 'object' && !Array.isArray(ex.providerSettings)) {
         const cur = await readJsonFile(subsFile('provider-settings.json'))
         if (JSON.stringify(cur) !== JSON.stringify(ex.providerSettings)) await writeJsonFile(subsFile('provider-settings.json'), ex.providerSettings)
+      }
+      if (typeof ex.pstackModels === 'string' && ex.pstackModels.length <= MAX_BODY) {
+        const path = join(dshHome(), PSTACK_MODELS)
+        let cur: string | undefined
+        try { cur = await readFile(path, 'utf8') } catch { /* none */ }
+        if (cur !== ex.pstackModels) await writeFile(path, ex.pstackModels, { mode: 0o644 })
       }
       // Sessions refreshed here go back, so the agent dsh (and the owner's
       // dsh after it) does not keep a refresh token that no longer works.
