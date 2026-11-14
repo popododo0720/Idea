@@ -14,6 +14,9 @@
 //   step while it is working (steer), or as a new turn while it is idle.
 //   Nothing sits in between: no controller, no relay.
 // - `team_list`, `team_stop`.
+// - `team_tasks`, `team_task_add`, `team_task_update`: the team's task board,
+//   kept by the lead's dsh (members reach it like a message). The owner's
+//   idea panel shows it next to the conversation.
 //
 // Peers prove themselves with the machine's team token (`/etc/idea/team/token`,
 // Secret `idea-team`, made by the controller) and pin the machine's TLS
@@ -51,10 +54,14 @@ const MAX_BODY = 256 * 1024
 const PLACEMENT_WAIT_MS = 5 * 60_000
 
 type Member = { name: string, vm: string, session: string, role: string }
+type TaskStatus = 'todo' | 'doing' | 'blocked' | 'done'
+type Task = { id: number, title: string, detail: string, owner: string, status: TaskStatus, after: number[], note: string, by: string, updated: string }
+const STATUSES: TaskStatus[] = ['todo', 'doing', 'blocked', 'done']
+const MAX_TASKS = 200
 type Local = { team: string, name: string, lead: { vm: string, name: string } }
 type State = {
   /** Teams led from this VM: the whole roster. */
-  led: Record<string, { lead: Member, members: Member[] }>
+  led: Record<string, { lead: Member, members: Member[], tasks?: Task[] }>
   /** Sessions on this VM that are team members, by session id. */
   local: Record<string, Local>
   /** The roster as last sent by each team's lead. */
@@ -433,6 +440,132 @@ export function apply(ctx: any) {
     await broadcastRoster(team, [m.vm])
   }
 
+  // ------------------------------------------------------------ task board
+
+  /** One change to (or a read of) a team's board, on the lead's VM. */
+  async function boardOp(team: string, who: string, op: any): Promise<Reply> {
+    const t = state.led[team]
+    if (!t) return { status: 404, value: { error: `team ${team} is not led from ${SELF}` } }
+    const names = [LEAD, ...t.members.map(m => m.name)]
+    if (!names.includes(who)) return { status: 403, value: { error: `${who} is not in team ${team}` } }
+    const tasks = t.tasks ??= []
+    const bad = (error: string) => ({ status: 400, value: { error } })
+    const byId = (id: unknown) => tasks.find(x => x.id === Number(id))
+    const owner = (v: unknown) => {
+      const o = String(v ?? '').trim()
+      if (o && !names.includes(o)) throw Object.assign(new Error(`no teammate ${JSON.stringify(o)}`), { status: 400 })
+      return o
+    }
+    const now = new Date().toISOString()
+    if (op?.op === 'add') {
+      const title = String(op.title ?? '').trim().slice(0, 200)
+      if (!title) return bad('a task needs a title')
+      if (tasks.length >= MAX_TASKS) return bad(`the board is full (${MAX_TASKS} tasks)`)
+      const after = [...new Set((Array.isArray(op.after) ? op.after : []).map(Number))]
+      const missing = after.filter(id => !byId(id))
+      if (missing.length) return bad(`no task #${missing.join(', #')}`)
+      const task: Task = {
+        id: tasks.reduce((n, x) => Math.max(n, x.id), 0) + 1, title, detail: String(op.detail ?? '').slice(0, 4000),
+        owner: owner(op.owner), status: 'todo', after, note: '', by: who, updated: now,
+      }
+      tasks.push(task)
+      await save()
+      return { status: 200, value: { task, tasks } }
+    }
+    if (op?.op === 'update') {
+      const task = byId(op.id)
+      if (!task) return bad(`no task #${op.id}`)
+      if (op.status !== undefined) {
+        if (!STATUSES.includes(op.status)) return bad(`status: one of ${STATUSES.join(', ')}`)
+        if (op.status === 'doing') {
+          const waiting = task.after.filter(id => byId(id)?.status !== 'done')
+          if (waiting.length) return bad(`task #${task.id} waits for #${waiting.join(', #')}`)
+        }
+        task.status = op.status
+      }
+      if (op.owner !== undefined) task.owner = owner(op.owner)
+      if (op.status === 'doing' && !task.owner) task.owner = who
+      if (op.note !== undefined) task.note = String(op.note).slice(0, 500)
+      task.by = who
+      task.updated = now
+      await save()
+      return { status: 200, value: { task, tasks } }
+    }
+    if (op?.op === 'list') return { status: 200, value: { tasks } }
+    return bad('op: add, update or list')
+  }
+
+  /** A board call from a tool: on this VM for the lead, else at the lead's VM. */
+  async function board(exec: any, op: any): Promise<Task[]> {
+    await load()
+    const me = memberOf(exec)
+    if (!me.local) throw new Error('this session is not in a team (team_spawn makes one)')
+    const { team, name, lead } = me.local
+    const r = lead.vm === SELF
+      ? await boardOp(team, name, op)
+      : await peer(lead.vm, 'POST', '/idea-team/tasks', { team, from: name, fromVm: SELF, op }, exec.signal)
+    if (r.status !== 200) throw new Error(r.value?.error ?? `HTTP ${r.status}`)
+    return r.value.tasks as Task[]
+  }
+
+  function boardText(tasks: Task[]): string {
+    if (!tasks.length) return 'The board is empty (team_task_add adds a task).'
+    const order: Record<TaskStatus, number> = { doing: 0, blocked: 1, todo: 2, done: 3 }
+    return [...tasks].sort((a, b) => order[a.status] - order[b.status] || a.id - b.id).map(x =>
+      `#${x.id} [${x.status}] ${x.title}${x.owner ? ` (${x.owner})` : ''}${x.after.length ? ` after #${x.after.join(', #')}` : ''}` +
+      `${x.note ? ` - ${x.note}` : ''}${x.detail && x.status !== 'done' ? `\n    ${x.detail.slice(0, 300).replace(/\n/g, ' ')}` : ''}`).join('\n')
+  }
+
+  ctx.tools.register(defineTool({
+    name: 'team_tasks',
+    description: 'Show your team\'s task board: every task with its status (todo, doing, blocked, done), owner and what it waits for.',
+    parameters: {},
+    output: TEXT_OUTPUT,
+    async execute(_args: unknown, exec: any) {
+      return { text: boardText(await board(exec, { op: 'list' })) }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'team_task_add',
+    description: 'Add a task to your team\'s board, so everyone (and the owner) sees who does what. The lead usually splits the work ' +
+      'into tasks; anyone may add one they discover.',
+    parameters: {
+      title: { type: 'string', required: true, description: 'Short title' },
+      detail: { type: 'string', description: 'What exactly, and what done means' },
+      owner: { type: 'string', description: 'Teammate who does it (optional)' },
+      after: { type: 'string', description: 'Task numbers it waits for, e.g. "1, 3" (optional)' },
+    },
+    output: TEXT_OUTPUT,
+    async execute(args: { title: string, detail?: string, owner?: string, after?: string }, exec: any) {
+      const after = String(args.after ?? '').split(/[\s,#]+/).filter(Boolean).map(Number).filter(Number.isInteger)
+      const tasks = await board(exec, { op: 'add', title: args.title, detail: args.detail, owner: args.owner, after })
+      return { text: `Added #${tasks[tasks.length - 1].id}.\n${boardText(tasks)}` }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'team_task_update',
+    description: 'Change a task on your team\'s board: claim it (status "doing"; you become the owner if it has none), mark it "done" ' +
+      'or "blocked" (say why in note), or hand it to someone. Tell the teammates who wait for it with team_send.',
+    parameters: {
+      id: { type: 'string', required: true, description: 'Task number' },
+      status: { type: 'string', description: 'todo, doing, blocked or done' },
+      owner: { type: 'string', description: 'New owner (teammate name)' },
+      note: { type: 'string', description: 'Short note: why blocked, what was done, the pull request' },
+    },
+    output: TEXT_OUTPUT,
+    async execute(args: { id: string, status?: string, owner?: string, note?: string }, exec: any) {
+      const id = Number(String(args.id).replace('#', ''))
+      if (!Number.isInteger(id)) throw new Error('id: a task number')
+      const op: any = { op: 'update', id }
+      if (args.status) op.status = String(args.status).trim()
+      if (args.owner !== undefined) op.owner = args.owner
+      if (args.note !== undefined) op.note = args.note
+      return { text: boardText(await board(exec, op)) }
+    },
+  }))
+
   // ------------------------------------------------------------- peer API
 
   /** Local members and whether they are working (for team_list and the controller's slot count). */
@@ -500,6 +633,7 @@ export function apply(ctx: any) {
       'Talk to them directly with team_send (to a name, "lead", or "all"); their messages arrive here as user messages.',
       'Agree on interfaces and on who changes which files before you start, tell the others when something they depend on is ready,',
       'and send the lead a short report with team_send when you are done or blocked. team_list shows who is working.',
+      'The team keeps a task board: team_tasks shows it; claim your task with team_task_update (status "doing") and mark it done or blocked.',
       'Deliver code as usual: clone the repository into this directory, work on a branch, open a pull request in Forgejo.',
       '',
       'Your task:',
@@ -555,6 +689,18 @@ export function apply(ctx: any) {
     await rename(logFile() + '.tmp', logFile())
   }
 
+  /** A member on another VM using the board. */
+  async function tasksRoute(v: any, req?: IncomingMessage): Promise<Reply> {
+    await load()
+    if (!TEAM.test(v?.team) || !NAME.test(v?.from) || !VM.test(v?.fromVm)) return { status: 400, value: { error: 'invalid request' } }
+    if (!req || !(await fromVm(req, v.fromVm))) return { status: 403, value: { error: 'the request does not come from the VM it names' } }
+    const t = state.led[v.team]
+    if (t && !t.members.some(m => m.name === v.from && m.vm === v.fromVm)) {
+      return { status: 403, value: { error: `${v.from} on ${v.fromVm} is not in team ${v.team}` } }
+    }
+    return boardOp(v.team, v.from, v.op)
+  }
+
   async function readLog(team: string | null): Promise<LogLine[]> {
     let text = ''
     try { text = await readFile(logFile(), 'utf8') } catch { return [] }
@@ -570,6 +716,7 @@ export function apply(ctx: any) {
     '/idea-team/spawn': { method: 'POST', handle: spawn },
     '/idea-team/roster': { method: 'POST', handle: roster },
     '/idea-team/stop': { method: 'POST', handle: stop },
+    '/idea-team/tasks': { method: 'POST', handle: tasksRoute },
     '/idea-team/load': { method: 'GET', handle: async () => ({ status: 200, value: await load_() }) },
   }
 
@@ -672,7 +819,8 @@ export function apply(ctx: any) {
       await load()
       const messages = (await readLog(team)).slice(-limit)
         .map(m => m.text.length > max ? { ...m, text: m.text.slice(0, max), clipped: true } : m)
-      send(res, 200, { vm: SELF, messages, rosters: state.rosters })
+      const boards = Object.fromEntries(Object.entries(state.led).map(([k, t]) => [k, t.tasks ?? []]))
+      send(res, 200, { vm: SELF, messages, rosters: state.rosters, boards })
     },
   }), 'idea: /idea-team/log')
 }

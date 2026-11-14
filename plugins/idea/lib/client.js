@@ -85,6 +85,13 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
 .idea-link{background:none;border:0;padding:0;color:var(--idea-link);font:inherit;font-size:13px;cursor:pointer}
 .idea-link:hover{text-decoration:underline}
 .idea-group .idea-link{color:var(--idea-text-2);font-weight:500}
+.idea-board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0 0 20px}
+@media (max-width:900px){.idea-board{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.idea-col{min-width:0;border-radius:var(--idea-r-md);background:var(--idea-surface);border:1px solid var(--idea-line-soft);padding:8px}
+.idea-col-head{display:flex;justify-content:space-between;font-size:13px;color:var(--idea-text-3);margin:0 2px 6px}
+.idea-task{border-radius:var(--idea-r-sm);border:1px solid var(--idea-line-soft);background:var(--idea-bg);padding:6px 8px;margin-top:6px;font-size:13px}
+.idea-task-mine{border-color:color-mix(in srgb,var(--idea-link) 55%,transparent)}
+.idea-task-meta{font-size:12px;color:var(--idea-text-3);margin-top:2px}
 .idea-icon-btn{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border:0;border-radius:6px;background:transparent;color:var(--idea-text-3);cursor:pointer}
 .idea-icon-btn:hover{background:var(--idea-hover);color:var(--idea-bad)}
 `;
@@ -181,6 +188,22 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
         line ? h("div", { className: "idea-line1" }, line) : null);
     }
 
+    const COLUMNS = [["todo", "To do"], ["doing", "Doing"], ["blocked", "Blocked"], ["done", "Done"]];
+
+    // A team's task board (kept by the lead, see plugins/team).
+    function Board({ tasks, mine }) {
+      if (!tasks || !tasks.length) return null;
+      return h("div", { className: "idea-board" }, COLUMNS.map(([id, label]) => {
+        const list = tasks.filter(t => t.status === id);
+        return h("div", { key: id, className: "idea-col" },
+          h("div", { className: "idea-col-head" }, h("span", null, label), h("span", null, String(list.length))),
+          list.map(t => h("div", { key: t.id, className: "idea-task" + (mine && t.owner === mine ? " idea-task-mine" : ""), title: t.detail || "" },
+            h("div", null, "#" + t.id + " " + t.title),
+            h("div", { className: "idea-task-meta" },
+              [t.owner || "unassigned", t.after && t.after.length ? "after #" + t.after.join(", #") : "", t.note || ""].filter(Boolean).join(" · ")))));
+      }));
+    }
+
     function Message({ m }) {
       const [open, setOpen] = useState(false);
       const long = m.text.length > 700;
@@ -275,7 +298,7 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
               onClick: () => choose({ kind: "member", team: t.team, name: m.name, vm: m.vm }),
               dot: m.status === "working" ? "working" : m.status === "unknown" ? "unknown" : m.status === "stopped" ? "stopped" : "",
               title: m.name, tag: m.vm, sub: m.status === "stopped" ? "stopped" + (m.role ? " · " + m.role : "") : m.role,
-              line: m.lastText ? timeOf(m.lastAt) + " · " + m.lastText : "",
+              line: m.doing && m.doing.length ? "Doing " + m.doing.join(", ") : m.lastText ? timeOf(m.lastAt) + " · " + m.lastText : "",
             })))),
           data && data.older ? h("p", { className: "idea-hint" }, data.older + " older teams not shown.") : null,
           activeTasks.length ? h("div", { className: "idea-group" }, "Task agents") : null,
@@ -305,6 +328,7 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
               ? h("button", { type: "button", className: "idea-btn", onClick: () => onOpen(pick.vm) }, "Open session on " + pick.vm)
               : null,
             pick ? h("button", { type: "button", className: "idea-btn", onClick: () => setPick(null) }, "Show all") : null),
+          pick && pickedTeam && pick.kind !== "task" ? h(Board, { tasks: pickedTeam.tasks, mine: pick.kind === "member" ? pick.name : "" }) : null,
           pick && pick.kind === "task"
             ? h("p", { className: "idea-hint" }, "Task agents work alone; their work is in the session and the pull request. Open the session to see every step.")
             : shown.length

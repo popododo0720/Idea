@@ -49,8 +49,12 @@ export function mergeMessages(logs) {
  */
 export function teamsOf(logs, messages) {
   const rosters = {}
+  const boards = {}
   const ordered = [...logs].filter(Boolean).sort((a, b) => (a.vm === 'idea-dsh') - (b.vm === 'idea-dsh'))
-  for (const l of ordered) Object.assign(rosters, l.rosters || {})
+  for (const l of ordered) {
+    Object.assign(rosters, l.rosters || {})
+    Object.assign(boards, l.boards || {})
+  }
   const lastOfTeam = {}
   const lastFrom = {}
   for (const m of messages) {
@@ -65,7 +69,9 @@ export function teamsOf(logs, messages) {
   }
   const member = (team, m, stopped) => {
     const said = lastFrom[`${team}/${m.name}`]
+    const doing = (boards[team] || []).filter(x => x && x.owner === m.name && x.status === 'doing').map(x => `#${x.id} ${x.title}`)
     return {
+      doing,
       name: String(m.name), role: String(m.role || ''), vm: String(m.vm || ''), session: stopped ? '' : String(m.session || ''),
       lastAt: said ? said.t : '', lastText: said ? said.text.slice(0, 300) : '', ...(stopped ? { status: 'stopped' } : {}),
     }
@@ -77,6 +83,7 @@ export function teamsOf(logs, messages) {
       const gone = [...(seen[team] ?? new Map())].filter(([name]) => name && !names.has(name)).map(([name, vm]) => ({ name, vm }))
       return {
         team,
+        tasks: Array.isArray(boards[team]) ? boards[team] : [],
         last: lastOfTeam[team] || '',
         members: [...members.map(m => member(team, m, false)), ...gone.map(m => member(team, m, true))],
       }

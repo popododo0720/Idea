@@ -64,5 +64,9 @@ issues:
 - Teammates message each other and you directly with `team_send`; their
   messages arrive here as user messages, so you can end your turn while they
   work. `team_list` shows who is working; `team_stop` ends a teammate.
+- Keep the plan on the team's task board: split the work into tasks with
+  `team_task_add` (owner, what it waits for), and have teammates claim and
+  close them with `team_task_update`. `team_tasks` shows the board; the owner
+  sees it in the idea panel too.
 - They still deliver through branches and pull requests, which are tested
   and merged as usual. Do not write the code here yourself.
