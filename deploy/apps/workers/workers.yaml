@@ -38,7 +38,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: dsh
-          image: ghcr.io/popododo0720/idea-worker:0.13.1
+          image: ghcr.io/popododo0720/idea-worker:0.14.0
           command: ["/usr/local/bin/idea-dsh"]
           env:
             - name: POD_IP
@@ -51,6 +51,9 @@ spec:
                   fieldPath: metadata.name
             - name: DSH_PORT
               value: "4443"
+            # This VM's name among the machine's VMs (plugins/team).
+            - name: IDEA_VM
+              value: $(POD_NAME)
             # Each VM answers to its own name (the controller and the plugin's
             # proxy send it as Host).
             - name: DSH_TRUSTED_HOST
@@ -102,6 +105,9 @@ spec:
             - name: sync
               mountPath: /etc/idea/sync
               readOnly: true
+            - name: team
+              mountPath: /etc/idea/team
+              readOnly: true
             - name: shm
               mountPath: /dev/shm
       volumes:
@@ -124,6 +130,12 @@ spec:
             items:
               - key: token
                 path: token
+        # Shared token of the machine's agent teams (plugins/team), made by
+        # the controller.
+        - name: team
+          secret:
+            secretName: idea-team
+            optional: true
         - name: shm
           emptyDir:
             medium: Memory
@@ -152,8 +164,8 @@ spec:
       port: 4443
       targetPort: dsh
 ---
-# Inbound to worker VMs: the controller, and the per-VM NodePorts the
-# controller opens for the owner's dsh.
+# Inbound to worker VMs: the controller, the per-VM NodePorts the controller
+# opens for the owner's dsh, and teammates on the other VMs (plugins/team).
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -171,6 +183,17 @@ spec:
         - ports:
             - port: "4443"
               protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: idea-work
+            idea.dev/agent: dsh
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: idea-work
+            idea.dev/agent: worker
+      toPorts:
+        - ports:
+            - port: "4443"
+              protocol: TCP
     - fromEntities:
         - world
         - host
@@ -179,12 +202,16 @@ spec:
         - ports:
             - port: "4443"
               protocol: TCP
-  # On top of the work-pod rules: pull models from idea-dsh.
+  # On top of the work-pod rules: pull models from idea-dsh, and talk to
+  # teammates on idea-dsh and the other worker VMs directly.
   egress:
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: idea-work
             idea.dev/agent: dsh
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: idea-work
+            idea.dev/agent: worker
       toPorts:
         - ports:
             - port: "4443"

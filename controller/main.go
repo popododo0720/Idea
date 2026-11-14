@@ -173,6 +173,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
 	mux.HandleFunc("/webhook/forgejo", c.handleWebhook)
+	mux.HandleFunc("/team/placement", c.handleTeamPlacement)
 	srv := &http.Server{Addr: ":8080", Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

@@ -30,3 +30,20 @@ reviewers`, choose the effort of every `pstack_subagent` call yourself with
 `reasoningEffort`: `high` for ordinary questions, `max` for hard ones (many
 trade-offs, subtle bugs, decisions that are expensive to undo). Use no other
 value for these roles.
+
+## Working as a team
+
+For work whose pieces need to talk while they are built (an API and its
+client, a schema and the code using it), start a team instead of separate
+issues:
+
+- `team_spawn` starts a teammate on a worker VM of its own (like another PC)
+  with its task: the Forgejo repository to clone, what to build, what done
+  means, and which teammates it has to agree with.
+- Teammates message each other and you directly with `team_send`; their
+  messages arrive here as user messages, so you can end your turn while they
+  work. `team_list` shows who is working; `team_stop` ends a teammate.
+- They still deliver through branches and pull requests, which are tested
+  and merged as usual. Do not write the code here yourself.
+- dsh's own teammates (spawn_teammate) run inside this dsh, not on worker
+  VMs: use them only for small helpers, never for the project's work.

@@ -47,7 +47,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: dsh
-          image: ghcr.io/popododo0720/idea-worker:0.13.1
+          image: ghcr.io/popododo0720/idea-worker:0.14.0
           command: ["/usr/local/bin/idea-dsh"]
           env:
             - name: POD_IP
@@ -56,6 +56,9 @@ spec:
                   fieldPath: status.podIP
             - name: DSH_PORT
               value: "4443"
+            # This VM's name among the machine's VMs (plugins/team).
+            - name: IDEA_VM
+              value: idea-dsh
             # Every client (the controller, the plugin's proxy) sends this Host.
             - name: DSH_TRUSTED_HOST
               value: idea-dsh.idea-work.svc:4443
@@ -111,6 +114,9 @@ spec:
             - name: sync
               mountPath: /etc/idea/sync
               readOnly: true
+            - name: team
+              mountPath: /etc/idea/team
+              readOnly: true
       volumes:
         - name: state
           persistentVolumeClaim:
@@ -137,6 +143,12 @@ spec:
         - name: sync
           secret:
             secretName: idea-sync
+            optional: true
+        # Shared token of the machine's agent teams (plugins/team): the VMs'
+        # dsh instances present it to each other; created by the controller.
+        - name: team
+          secret:
+            secretName: idea-team
             optional: true
 ---
 # In-cluster address (the controller), and the name every client sends as Host.
@@ -200,6 +212,26 @@ spec:
         - world
         - host
         - remote-node
+      toPorts:
+        - ports:
+            - port: "4443"
+              protocol: TCP
+  # On top of the work-pod rules (agent teams, plugins/team): ask the
+  # controller where to start a teammate, and talk to teammates on the
+  # worker VMs directly.
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: idea-system
+            idea.dev/role: controller
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: idea-work
+            idea.dev/agent: worker
       toPorts:
         - ports:
             - port: "4443"

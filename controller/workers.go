@@ -51,6 +51,9 @@ type workerPool struct {
 	clients map[string]*dshClient
 	grown   time.Time
 	note    string // why no VM was added last time, for the status page
+	// Team members on each VM (team.go), from the VMs' own reports.
+	teamLoad map[string]int
+	reserved []reservation
 }
 
 func newWorkerPool(c *Controller) *workerPool {
@@ -311,16 +314,20 @@ func nodeUsable(n *corev1.Node) bool {
 	return true
 }
 
-// reconcile keeps the per-VM NodePort Services (for the owner's dsh)
-// and the shared model sync token in place.
+// reconcile keeps the per-VM NodePort Services (for the owner's dsh) and
+// the shared model sync and team tokens in place, and counts team members.
 func (p *workerPool) reconcile(ctx context.Context) error {
-	if err := p.c.ensureSyncSecret(ctx); err != nil {
+	if err := p.c.ensureTokenSecret(ctx, syncSecret); err != nil {
 		return fmt.Errorf("sync token: %w", err)
+	}
+	if err := p.c.ensureTokenSecret(ctx, teamSecret); err != nil {
+		return fmt.Errorf("team token: %w", err)
 	}
 	vms, _, err := p.list(ctx)
 	if err != nil {
 		return err
 	}
+	p.refreshTeamLoad(ctx, vms)
 	svcs := p.c.kube.CoreV1().Services(p.c.cfg.WorkNS)
 	for _, vm := range vms {
 		_, err := svcs.Get(ctx, workerExternal(vm.Name), metav1.GetOptions{})
@@ -372,21 +379,4 @@ func isWorkerVM(name string) bool {
 	}
 	i, err := strconv.Atoi(n)
 	return err == nil && i >= 0 && strconv.Itoa(i) == n
-}
-
-// ensureSyncSecret creates the shared model sync token once.
-func (c *Controller) ensureSyncSecret(ctx context.Context) error {
-	api := c.kube.CoreV1().Secrets(c.cfg.WorkNS)
-	_, err := api.Get(ctx, syncSecret, metav1.GetOptions{})
-	if err == nil || !apierrors.IsNotFound(err) {
-		return err
-	}
-	_, err = api.Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: syncSecret, Labels: managedLabels()},
-		Data:       map[string][]byte{"token": []byte(randomHex(32))},
-	}, metav1.CreateOptions{})
-	if apierrors.IsAlreadyExists(err) {
-		return nil
-	}
-	return err
 }

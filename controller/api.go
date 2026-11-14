@@ -277,8 +277,10 @@ func (c *Controller) apiHandler() http.Handler {
 			return
 		}
 		ports := c.workers.nodePorts(ctx)
+		team := c.workers.teamBusy()
 		for i := range vms {
 			vms[i].NodePort = ports[vms[i].Name]
+			vms[i].Active = team[vms[i].Name]
 			for _, t := range tasks {
 				if t.VM == vms[i].Name && t.Phase == phaseWorking {
 					vms[i].Active++

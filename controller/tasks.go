@@ -175,6 +175,9 @@ func (c *Controller) reconcileTasks(ctx context.Context) error {
 			perVM[t.vm]++
 		}
 	}
+	for vm, n := range c.workers.teamBusy() {
+		perVM[vm] += n // teammates (team.go) use the same slots
+	}
 	vms, replicas, err := c.workers.list(ctx)
 	if err != nil {
 		return fmt.Errorf("worker VMs: %w", err)

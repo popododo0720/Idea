@@ -18,3 +18,9 @@
 - insert:
     - id: idea-machine-sync
       name: '/opt/idea/plugins/machine-sync/src/index.ts'
+
+# Agent teams across VMs: team_spawn / team_send / team_list / team_stop,
+# teammates on worker VMs talking to each other directly. See plugins/team.
+- insert:
+    - id: idea-team
+      name: '/opt/idea/plugins/team/src/index.ts'
