@@ -68,7 +68,7 @@ INSTALLER_IMAGE=$IMAGE_REPO/$INSTALLER
 ENV
 
 log "building $SETUP_LOCAL"
-podman build -q --build-arg BUSYBOX_IMAGE="$BUSYBOX_IMAGE" -t "$SETUP_LOCAL" "$B/ext" >/dev/null
+podman build -q --build-arg BUSYBOX_IMAGE="$BUSYBOX_IMAGE" --build-arg GO_IMAGE="$GO_IMAGE" -t "$SETUP_LOCAL" "$B/ext" >/dev/null
 podman push -q "$SETUP_LOCAL"
 
 imager() {

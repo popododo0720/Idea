@@ -370,3 +370,38 @@ func TestGrowWithoutRoom(t *testing.T) {
 		t.Fatalf("grow starting = %q", msg)
 	}
 }
+
+// A second node adds room: a VM that does not fit on the first node does fit
+// on the one that joined.
+func TestGrowUsesAJoinedNode(t *testing.T) {
+	e, scaled := workerEnv(t)
+	hog := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "hog"},
+		Spec: corev1.PodSpec{NodeName: "n1", Containers: []corev1.Container{
+			{Resources: corev1.ResourceRequirements{Requests: rl("3500m", "1Gi")}},
+		}},
+	}
+	if _, err := e.kube.CoreV1().Pods("other").Create(t.Context(), hog, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	vms, replicas, _ := e.c.workers.list(t.Context())
+	if msg := e.c.workers.grow(t.Context(), vms, replicas); !strings.HasPrefix(msg, "waiting for a free worker VM") {
+		t.Fatalf("one full node: %q", msg)
+	}
+	// A joining node that is not Ready yet counts for nothing.
+	n2 := readyNode("n2")
+	n2.Status.Conditions[0].Status = corev1.ConditionFalse
+	if _, err := e.kube.CoreV1().Nodes().Create(t.Context(), n2, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if msg := e.c.workers.grow(t.Context(), vms, replicas); !strings.HasPrefix(msg, "waiting for a free worker VM") || *scaled != 0 {
+		t.Fatalf("node not ready: %q", msg)
+	}
+	n2.Status.Conditions[0].Status = corev1.ConditionTrue
+	if _, err := e.kube.CoreV1().Nodes().Update(t.Context(), n2, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if msg := e.c.workers.grow(t.Context(), vms, replicas); msg != "starting worker VM idea-worker-2" || *scaled != 3 {
+		t.Fatalf("second node: %q scaled=%d", msg, *scaled)
+	}
+}

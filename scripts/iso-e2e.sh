@@ -10,6 +10,10 @@
 #
 #   iso-e2e.sh <iso>          boot a fresh VM first
 #   iso-e2e.sh --running      use the VM that is already up
+#   iso-e2e.sh --join-code    on a machine that is already up (like --running):
+#                             issue a join code through the API, check that it
+#                             is single use, and print it for the install page
+#                             of a second machine (see docs/spikes/08-installer-iso.md)
 #
 # VM shape: ISO_TEST_DISKS, ISO_TEST_UEFI, ISO_TEST_MEMORY_MB (iso-test.sh).
 
@@ -31,9 +35,11 @@ wait_for() { # wait_for <seconds> <description> <command...>
   mark "$what"
 }
 
+JOIN_ONLY=0
 case "${1:-}" in
   --running) ;;
-  "") die "usage: $0 <iso> | --running" ;;
+  --join-code) JOIN_ONLY=1 ;;
+  "") die "usage: $0 <iso> | --running | --join-code" ;;
   *)
     "$S/iso-test.sh" create "$1" >/dev/null 2>&1 || die "could not start the test VM"
     mark "blank VM booted from $(basename "$1"); nothing else is sent to it"
@@ -108,6 +114,24 @@ if not user or not password:
 with open(os.open(os.path.join(t, "curlrc"), os.O_WRONLY | os.O_CREAT, 0o600), "w") as f:
     f.write('user = "%s:%s"\n' % (user.replace('"', '\\"'), password.replace('"', '\\"')))
 PY
+
+# Join: a code for a second machine. Single use is checked with a wrong code
+# first; the real code is printed for the install page (it is not consumed here).
+join_code() {
+  page -K "$T/apirc" -X POST -H "Content-Type: application/json" --data '{}' "${url}api/v1/nodes/join-code"
+}
+issued="$(join_code)"
+jq -e '.code and .validMinutes == 30' >/dev/null <<<"$issued" || die "no join code issued: $issued"
+[ "$(page -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data '{"code":"wrong-code-0000"}' "${url}api/v1/nodes/join")" = 401 ] \
+  || die "the join endpoint accepted a wrong code"
+mark "join code issued, wrong code rejected"
+if [ "$JOIN_ONLY" = 1 ]; then
+  echo "address:   ${url#https://}" | sed 's#/$##'
+  echo "join code: $(jq -r .code <<<"$issued")"
+  echo "Boot a second blank machine from the ISO, choose 'Join an existing machine' on its install page (port 8080) and enter these."
+  mark "PASS (join code)"
+  exit 0
+fi
 
 # Admin access for the owner is offered as well.
 page --data-urlencode "code@$T/code" "${url}talosconfig" >"$T/talosconfig"

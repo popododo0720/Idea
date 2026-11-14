@@ -1,19 +1,29 @@
 # Talos system extension "idea-setup": two extension services that share one
 # small root filesystem (busybox, talosctl, the scripts, the config patches).
 ARG BUSYBOX_IMAGE
+ARG GO_IMAGE
+
+# idea-join: fetches the worker configuration from an existing machine (busybox
+# has no HTTPS client that can pin a certificate).
+FROM ${GO_IMAGE} AS join
+WORKDIR /src
+COPY join/ ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags=-s -o /idea-join .
+
 # The -musl variant is statically linked; the extension root has no libc.
 FROM ${BUSYBOX_IMAGE}-musl AS root
 RUN mkdir -p /r/bin /r/work /r/etc/idea/patches /r/proc /r/sys /r/dev /r/tmp /r/run \
  && cp /bin/busybox /r/bin/busybox \
  && for a in sh sed cat cp rm mv seq sleep ip tail head tr grep echo httpd; do ln -s busybox /r/bin/$a; done
 COPY talosctl /r/bin/talosctl
+COPY --from=join /idea-join /r/bin/idea-join
 COPY setup.sh bootstrap.sh /r/
 COPY www/ /r/www/
 COPY setup.env /r/etc/idea/setup.env
 COPY patches/ /r/etc/idea/patches/
 # Mount points for the files Talos binds in from ExtensionServiceConfig.
-RUN chmod 0755 /r/bin/talosctl /r/setup.sh /r/bootstrap.sh /r/www/cgi-bin/install \
- && : > /r/etc/idea/secrets.yaml && : > /r/etc/idea/talosconfig && : > /r/etc/idea/setup-code
+RUN chmod 0755 /r/bin/talosctl /r/bin/idea-join /r/setup.sh /r/bootstrap.sh /r/www/cgi-bin/install \
+ && : > /r/etc/idea/secrets.yaml && : > /r/etc/idea/talosconfig && : > /r/etc/idea/setup-code && : > /r/etc/idea/worker
 
 FROM scratch
 COPY manifest.yaml /manifest.yaml

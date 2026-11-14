@@ -148,6 +148,7 @@ const FORWARD = [
   ['POST', /^\/tasks$/],
   ['GET', /^\/tasks\/[a-z0-9-]{1,120}$/],
   ['POST', /^\/tasks\/[a-z0-9-]{1,120}\/(retry|cancel)$/],
+  ['POST', /^\/nodes\/join-code$/],
   ['PUT', /^\/keys$/],
   ['GET', /^\/devices$/],
   ['GET', /^\/vms$/],

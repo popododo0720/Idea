@@ -87,6 +87,7 @@ func TestAPIAuthGuardsEveryRoute(t *testing.T) {
 		{"PUT", "/api/v1/keys"},
 		{"GET", "/api/v1/dsh"},
 		{"GET", "/api/v1/devices"},
+		{"POST", "/api/v1/nodes/join-code"},
 		{"DELETE", "/api/v1/devices/" + testDevice},
 		{"GET", "/api/v1/nothing-here"},
 	}
