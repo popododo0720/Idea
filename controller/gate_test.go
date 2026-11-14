@@ -18,7 +18,13 @@ const (
 	gateStatus  = "GET /repos/idea/shop/commits/abc123/status"
 	gateMerge   = "POST /repos/idea/shop/pulls/3/merge"
 	gateComment = "POST /repos/idea/shop/issues/7/comments"
+	gateRunsAPI = "GET /repos/idea/shop/actions/tasks"
 )
+
+// gateRuns is a Forgejo Actions run listing with one run of sha.
+func gateRuns(sha, status string) string {
+	return fmt.Sprintf(`{"workflow_runs":[{"head_sha":%q,"status":%q}],"total_count":1}`, sha, status)
+}
 
 // gatePR is the pulls listing with the task's pull request (#3, branch
 // idea/issue-7, head abc123) next to another task's.
@@ -51,6 +57,7 @@ func TestGate(t *testing.T) {
 		extra       map[string]any // more task status
 		pulls       fjReply
 		status      fjReply
+		runs        fjReply // Forgejo Actions runs; unset: 404 (Actions off)
 		merge       fjReply
 		wantErr     string // part of the returned error
 		wantPhase   string
@@ -84,9 +91,40 @@ func TestGate(t *testing.T) {
 			wantPhase: phaseGate, wantMsg: "waiting for tests",
 		},
 		{
-			name: "tests still running after 20 minutes", since: 25 * time.Minute,
+			// A slow runner or a queue of pull requests: keep waiting.
+			name: "tests still running after 25 minutes", since: 25 * time.Minute,
 			pulls: fjReply{Body: gatePR(open)}, status: fjReply{Body: gateStatusJSON("pending", 1)},
-			wantPhase: phaseFailed, wantMsg: "no test result within 20 minutes",
+			wantPhase: phaseGate, wantMsg: "waiting for tests",
+		},
+		{
+			name: "tests still running after 3 hours", since: 3*time.Hour + time.Minute,
+			pulls: fjReply{Body: gatePR(open)}, status: fjReply{Body: gateStatusJSON("pending", 1)},
+			wantPhase: phaseFailed, wantMsg: "tests did not finish within 3 hours; not merged",
+		},
+		{
+			// The run waits for the runner and has no status yet.
+			name: "tests queued after 40 minutes", since: 40 * time.Minute,
+			pulls: fjReply{Body: gatePR(open)}, status: fjReply{Body: gateStatusJSON("", 0)},
+			runs:      fjReply{Body: gateRuns("abc123", "waiting")},
+			wantPhase: phaseGate, wantMsg: "waiting for tests",
+		},
+		{
+			name: "only other commits' runs after 21 minutes", since: 21 * time.Minute,
+			pulls: fjReply{Body: gatePR(open)}, status: fjReply{Body: gateStatusJSON("", 0)},
+			runs:      fjReply{Body: gateRuns("fff", "running")},
+			wantPhase: phaseFailed, wantMsg: "no test result within 20 minutes; not merged",
+		},
+		{
+			name: "this commit's run finished without a status", since: 21 * time.Minute,
+			pulls: fjReply{Body: gatePR(open)}, status: fjReply{Body: gateStatusJSON("", 0)},
+			runs:      fjReply{Body: gateRuns("abc123", "cancelled")},
+			wantPhase: phaseFailed, wantMsg: "no test result within 20 minutes; not merged",
+		},
+		{
+			name: "runs unreadable", since: 21 * time.Minute,
+			pulls: fjReply{Body: gatePR(open)}, status: fjReply{Body: gateStatusJSON("", 0)},
+			runs:    fjReply{Status: 500},
+			wantErr: "HTTP 500", wantPhase: phaseGate, wantMsg: "waiting for tests",
 		},
 		{
 			name: "no status yet", since: 3 * time.Minute,
@@ -162,6 +200,9 @@ func TestGate(t *testing.T) {
 			e.fj.routes[gatePulls] = tc.pulls
 			if tc.status.Body != "" || tc.status.Status != 0 {
 				e.fj.routes[gateStatus] = tc.status
+			}
+			if tc.runs.Body != "" || tc.runs.Status != 0 {
+				e.fj.routes[gateRunsAPI] = tc.runs
 			}
 			e.fj.routes[gateComment] = fjReply{Status: 201, Body: `{}`}
 			e.fj.routes[gateMerge] = tc.merge

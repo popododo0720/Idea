@@ -333,6 +333,14 @@ func (c *Controller) startSession(ctx context.Context, t taskView) error {
 // task fails.
 const maxConflicts = 3
 
+const (
+	// noTestsAfter: without a test run for the head by then, the repository
+	// has no tests and the pull request is not merged.
+	noTestsAfter = 20 * time.Minute
+	// testsMaxWait bounds the wait for queued and running tests.
+	testsMaxWait = 3 * time.Hour
+)
+
 // resolveConflict asks the task's agent, in its session, to rebase the pull
 // request onto the latest main; the task goes back to Working and through
 // the gate again with the new commit.
@@ -356,7 +364,7 @@ func (c *Controller) resolveConflict(ctx context.Context, t taskView, number int
 Update branch %s:
 1. git fetch origin && git rebase origin/main
 2. Resolve every conflict so both the work already on main and this issue's change are kept.
-3. Run the tests with: npm test
+3. Run the repository's checks (scripts/ci.sh if it has one, else its tests) and fix what fails.
 4. git push --force-with-lease
 Do not open a new pull request; the existing one follows the branch. Reply when it is pushed.`, number, t.branch)
 	if err := d.prompt(ctx, t.session, fmt.Sprintf("idea-%s-conflict-%d", t.name, conflicts+1), text); err != nil {
@@ -481,7 +489,19 @@ func (c *Controller) gate(ctx context.Context, t taskView) error {
 			"Tests failed on pull request #%d, so it was **not merged**. (idea task `%s`)", pr.Number, t.name))
 		return c.fail(ctx, t, fmt.Sprintf("tests failed on pull request #%d; not merged", pr.Number))
 	}
-	if time.Since(t.since) > 20*time.Minute {
+	// Tests are running (a pending status) or queued behind other pull
+	// requests on the runner (a run without a status yet): wait for them.
+	// No run at all means the repository has no tests to wait for.
+	running := st.TotalCount > 0 && st.State == "pending"
+	if !running && time.Since(t.since) > noTestsAfter {
+		if running, err = c.fj.TestsQueued(ctx, t.repo, sha); err != nil {
+			return err
+		}
+	}
+	switch {
+	case running && time.Since(t.since) > testsMaxWait:
+		return c.fail(ctx, t, "tests did not finish within 3 hours; not merged")
+	case !running && time.Since(t.since) > noTestsAfter:
 		return c.fail(ctx, t, "no test result within 20 minutes; not merged")
 	}
 	return nil
@@ -557,7 +577,7 @@ Do exactly this:
 2. Start from the latest main, without leftovers from earlier tasks:
    git fetch origin && git reset --hard && git clean -fdx && git checkout -B %s origin/main
 3. Implement what the issue asks, including tests for it. Follow the issue literally, even if it asks for something that makes a test fail.
-4. Run the tests with: npm test
+4. Run the repository's checks and fix what they find before you push. If it has CONTRIBUTING.md or scripts/ci.sh, run what they say (usually scripts/ci.sh); otherwise its test command (for example npm test). Do not push while a check fails.
 5. Commit your work with a clear message and push the branch: git push --force-with-lease -u origin %s
 6. Open the pull request with the forgejo_pull_request tool: repo %q, head %q, title %q, body "Closes #%d".
 7. Reply with the pull request URL and whether the tests passed.
