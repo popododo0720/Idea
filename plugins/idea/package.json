@@ -1,6 +1,6 @@
 {
   "name": "@popododo0720/dsh-idea",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "description": "DeepSeek Harness panel for an idea machine: projects, tasks and agent runs, from your own dsh",
   "type": "module",
   "main": "lib/index.js",

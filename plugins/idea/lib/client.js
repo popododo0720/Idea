@@ -496,9 +496,11 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
     function loadPref(key) { try { return localStorage.getItem("idea." + key) || ""; } catch { return ""; } }
     function savePref(key, v) { try { localStorage.setItem("idea." + key, v); } catch { /* private window */ } }
 
+    const GONE = "This repository no longer exists.";
+
     // The machine's Forgejo repositories: branches, commits, pull requests
     // and their diffs, through the machine API (/api/v1/git/...).
-    function ForgeView({ full, picker }) {
+    function ForgeView({ full, picker, onGone }) {
       const [branches, setBranches] = useState([]);
       const [pulls, setPulls] = useState([]);
       const [commits, setCommits] = useState([]);
@@ -513,25 +515,37 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
       const toggle = k => setOpen(Object.assign({}, open, { [k]: !open[k] }));
       const base = "/v1/git/repos/" + full;
 
-      useEffect(() => { setLogRef(""); setSel(null); setDiff(null); setInfo(null); setBranches([]); setPulls([]); setCommits([]); }, [full]);
+      useEffect(() => { setLogRef(""); setSel(null); setDiff(null); setInfo(null); setBranches([]); setPulls([]); setCommits([]); setError(null); }, [full]);
 
       const refresh = useCallback(async () => {
+        let b, p, s;
         try {
-          const [b, p, s] = await Promise.all([
+          [b, p, s] = await Promise.all([
             api("GET", base + "/branches?limit=50"),
             api("GET", base + "/pulls?state=open&limit=50"),
             api("GET", "/v1/git/repos/search?limit=50&q=" + encodeURIComponent(full.split("/")[1])),
           ]);
-          setBranches(Array.isArray(b) ? b : []);
-          setPulls(Array.isArray(p) ? p : []);
-          const me = s && Array.isArray(s.data) ? s.data.find(r => r.full_name === full) : null;
-          setInfo(me || null);
-          const ref = logRef || (me && me.default_branch) || "";
+        } catch (err) {
+          // A 404 here is about the repository itself.
+          if (err && err.status === 404) { setError(new Error(GONE)); if (onGone) onGone(); } else setError(err);
+          return;
+        }
+        setBranches(Array.isArray(b) ? b : []);
+        setPulls(Array.isArray(p) ? p : []);
+        const me = s && Array.isArray(s.data) ? s.data.find(r => r.full_name === full) : null;
+        setInfo(me || null);
+        const ref = logRef || (me && me.default_branch) || "";
+        try {
           const c = await api("GET", base + "/commits?limit=100&stat=false&verification=false&files=false" + (ref ? "&sha=" + encodeURIComponent(ref) : ""));
           setCommits(Array.isArray(c) ? c : []);
           setError(null);
-        } catch (err) { setError(err); }
-      }, [base, full, logRef]);
+        } catch (err) {
+          // The picked branch was deleted (for example when its pull request
+          // was merged): go back to the default branch.
+          if (err && err.status === 404 && logRef) { setNote("Branch " + logRef + " is gone"); setLogRef(""); }
+          else setError(err);
+        }
+      }, [base, full, logRef, onGone]);
       useEffect(() => {
         refresh();
         const t = setInterval(refresh, 20000);
@@ -658,15 +672,18 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
         } catch (err) { setError(err); }
       }, [repo]);
       useEffect(() => { if (visible && !repos) loadRepos(); }, [visible, repos, loadRepos]);
-      useEffect(() => { if (repo) savePref("gitRepo", repo); setSt(null); setCommits([]); setLogRef(""); setSel(null); setDiff(null); }, [repo]);
+      useEffect(() => { if (repo) savePref("gitRepo", repo); setSt(null); setCommits([]); setLogRef(""); setSel(null); setDiff(null); setError(null); }, [repo]);
 
       const refresh = useCallback(async () => {
         if (!base) return;
         try {
           const [s, l] = await Promise.all([api("GET", base + "/state"), api("GET", base + "/log" + (logRef ? "?ref=" + encodeURIComponent(logRef) : ""))]);
           setSt(s); setCommits(l.commits || []); setError(null);
-        } catch (err) { setError(err); }
+        } catch (err) {
+          if (err && err.status === 404) { setError(new Error(GONE)); setRepos(null); } else setError(err);
+        }
       }, [base, logRef]);
+      const onGone = useCallback(() => setRepos(null), []);
       useEffect(() => {
         if (!visible || !base) return undefined;
         refresh();
@@ -780,7 +797,7 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
       });
       if (isMachine) {
         return h("div", { className: visible ? "idea-team" : "idea-hide", style: { flexDirection: "column" } },
-          visible ? h(ForgeView, { full: repo.slice(2), picker: repoPicker }) : null);
+          visible ? h(ForgeView, { full: repo.slice(2), picker: repoPicker, onGone }) : null);
       }
       const bar = h("div", { className: "idea-git-bar" },
         repoPicker,
