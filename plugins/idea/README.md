@@ -29,9 +29,9 @@ idea panel (iframe) ──▶ 127.0.0.1:<port> view proxy ──HTTPS, pinned─
 idea panel          ──/idea/*──▶ this plugin ──HTTPS, pinned──▶ machine API (:30443/api/v1)
 ```
 
-- `lib/client.js` draws the panel: the pairing form, then two tabs.
+- `lib/client.js` draws the panel: the pairing form, then three tabs.
   **Sessions** is a full-size iframe of the machine's dsh (the main VM or a
-  worker VM). **Team** lists every agent (each team member with its role, VM,
+  worker VM, picked from a menu like dsh's model picker). **Team** lists every agent (each team member with its role, VM,
   whether it is working, its last message; and the task agents with their
   issue, phase and pull request) next to the messages the agents send each
   other. Picking an agent filters the messages; "Open session" shows that
@@ -39,8 +39,20 @@ idea panel          ──/idea/*──▶ this plugin ──HTTPS, pinned──
   teammate or delete a team there (its members stop and its messages are
   removed; the sessions stay). Picking a team or a member shows the team's
   task board (To do, Doing, Blocked, Done), and each card says what that
-  agent is doing. The panel uses dsh's design tokens, so it
-  follows the dsh theme and font settings.
+  agent is doing. **Git** works like lazygit, by mouse: on the left the
+  changed files (stage, unstage, discard, commit, amend), the branches
+  (check out, create, merge, delete; remote branches check out as tracking
+  branches), the commits of the picked branch (revert, cherry-pick, new
+  branch, copy the SHA) and the stashes (apply, pop, drop); on the right the
+  diff of what is picked. It shows the git repositories of this dsh's
+  workspaces. The panel uses dsh's design tokens, so it follows the dsh theme
+  and font settings.
+- `lib/git-local.js` runs the Git tab's commands for this dsh's workspaces.
+  A repository is named by its workspace id, never by a path from the
+  browser; each command is a fixed argument list run without a shell, branch
+  names and commit ids are checked first, and file paths always come after
+  `--`. Fetch, pull and push use the person's own git credentials and never
+  prompt.
 - `lib/team-view.js` builds the Team tab: it reads every VM's team log
   (`/idea-team/log`, written by the machine's idea-team plugin) through the
   view proxies, keeps one copy of each message, and asks each member's dsh
