@@ -476,6 +476,14 @@ func (c *Controller) gate(ctx context.Context, t taskView) error {
 		if held, err := c.publishHold(ctx, t, pr.Number); err != nil || held {
 			return err
 		}
+		if c.cfg.Review {
+			if !pr.Mergeable {
+				return nil
+			}
+			if ok, err := c.review(ctx, t, pr.Number, sha); err != nil || !ok {
+				return err
+			}
+		}
 		if err := c.fj.Merge(ctx, t.repo, pr.Number); err != nil {
 			return fmt.Errorf("merge: %w", err)
 		}
