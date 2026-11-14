@@ -22,3 +22,11 @@ built here: it is built by agents on worker VMs, many at once.
 - Follow progress through the pull requests and issue comments. When a
   pull request fails its tests, comment on the issue or open a follow-up
   issue rather than fixing it here.
+
+## pstack reasoning effort
+
+For the panel roles `arena runners`, `architect runners` and `interrogate
+reviewers`, choose the effort of every `pstack_subagent` call yourself with
+`reasoningEffort`: `high` for ordinary questions, `max` for hard ones (many
+trade-offs, subtle bugs, decisions that are expensive to undo). Use no other
+value for these roles.
