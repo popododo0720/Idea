@@ -37,7 +37,9 @@ idea panel          ──/idea/*──▶ this plugin ──HTTPS, pinned──
   other. Picking an agent filters the messages; "Open session" shows that
   VM's dsh, where the agent's whole session is. The owner can stop a
   teammate or delete a team there (its members stop and its messages are
-  removed; the sessions stay). The panel uses dsh's design tokens, so it
+  removed; the sessions stay). Picking a team or a member shows the team's
+  task board (To do, Doing, Blocked, Done), and each card says what that
+  agent is doing. The panel uses dsh's design tokens, so it
   follows the dsh theme and font settings.
 - `lib/team-view.js` builds the Team tab: it reads every VM's team log
   (`/idea-team/log`, written by the machine's idea-team plugin) through the

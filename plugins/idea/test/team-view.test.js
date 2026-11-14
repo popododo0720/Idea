@@ -54,3 +54,14 @@ test('teamView reads every VM and asks each member whether it works', async () =
   assert.deepEqual(v.teams[0].members.map(m => m.status), ['idle', 'unknown'])
   assert.equal(v.messages.length, 1)
 })
+
+test('the board comes from the lead VM and shows what each member is doing', () => {
+  const logs = [{
+    vm: 'idea-dsh',
+    rosters: { aaaa0001: [{ name: 'lead', vm: 'idea-dsh', session: 's1' }, { name: 'carol', vm: 'idea-worker-0', session: 's2' }] },
+    boards: { aaaa0001: [{ id: 1, title: 'API', owner: 'carol', status: 'doing', after: [] }, { id: 2, title: 'Docs', owner: 'carol', status: 'todo', after: [1] }] },
+  }]
+  const { teams } = teamsOf(logs, [])
+  assert.equal(teams[0].tasks.length, 2)
+  assert.deepEqual(teams[0].members[1].doing, ['#1 API'])
+})
