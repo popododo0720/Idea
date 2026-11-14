@@ -4,6 +4,8 @@
 // - `idea_project_create`: a new project (a repository in the machine's
 //   Forgejo whose issues become tasks), empty or copied from a public Git
 //   repository such as one on GitHub.
+// - `idea_project_mirror`: publish a project's main to another Git server
+//   (for example a public GitHub repository) after the machine checks it.
 // - `idea_status`: projects, worker VMs and their load, tasks and their pull
 //   requests.
 // - `forgejo_issue_create`, `forgejo_issues`: open and list a project's
@@ -33,6 +35,7 @@ const FORGEJO_TOKEN_FILE = '/etc/idea/forgejo/token'
 const PROJECT = /^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$/
 const REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/
 const IMPORT = /^https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?\/[A-Za-z0-9._~/-]+$/
+const MIRROR = /^(ssh:\/\/)?[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?[:/][A-Za-z0-9_~][A-Za-z0-9._~/-]*$/
 const MAX_BODY = 8 * 1024 * 1024
 
 const TEXT_OUTPUT = {
@@ -153,6 +156,36 @@ export function apply(ctx: any) {
   }))
 
   ctx.tools.register(defineTool({
+    name: 'idea_project_mirror',
+    description: 'Publish a project\'s main branch to another Git server, for example a public GitHub repository. ' +
+      'The machine keeps a push mirror with its own SSH key and pushes only after checking each new commit: commit e-mails ' +
+      '(GitHub noreply addresses by default) and the machine\'s list of private strings. Pull requests that would fail the check are ' +
+      'sent back to their agent instead of being merged. Nothing is pushed until a person adds the deploy key that idea_status shows ' +
+      'to the other repository with write access. Main as it is when the mirror is set up is published as it is; ' +
+      'later commits are checked first. An empty url stops publishing.',
+    parameters: {
+      name: { type: 'string', required: true, description: 'Project name' },
+      url: { type: 'string', required: true, description: 'SSH address such as git@github.com:owner/repo.git, or "" to stop' },
+      allowed_emails: { type: 'string', description: 'Regular expressions for commit e-mails that may be published, one per line (optional; default GitHub noreply addresses)' },
+    },
+    output: TEXT_OUTPUT,
+    async execute(args: { name: string, url: string, allowed_emails?: string }, exec: any) {
+      const name = String(args.name).trim().toLowerCase()
+      if (!PROJECT.test(name)) throw new Error('name: a project name')
+      const url = String(args.url ?? '').trim()
+      if (url && !MIRROR.test(url)) throw new Error('url: an SSH address such as git@github.com:owner/repo.git')
+      const allowedEmails = String(args.allowed_emails ?? '').split('\n').map(l => l.trim()).filter(Boolean)
+      const r = await controller('POST', `/agent/projects/${name}/mirror`, { url, allowedEmails }, exec?.signal)
+      if (r.status !== 200) throw new Error(`could not set the mirror of ${name}: ${errorOf(r)}`)
+      return {
+        text: url
+          ? `Project ${name} will be published to ${url}. Within a minute idea_status shows the deploy key; ask the owner to add it to that repository with write access. Until then nothing is pushed.`
+          : `Project ${name} is no longer published. Remove its deploy key from the other repository too.`,
+      }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
     name: 'idea_status',
     description: 'The machine\'s state: projects (and whether each repository is ready), worker VMs with their load, ' +
       'and tasks (one per open issue) with their phase, VM and pull request.',
@@ -165,6 +198,10 @@ export function apply(ctx: any) {
       const lines: string[] = ['Projects:']
       for (const p of v.projects ?? []) {
         lines.push(`- ${p.name} (${p.repo}): ${p.ready ? 'ready' : `not ready${p.message ? `: ${p.message}` : ''}`}`)
+        if (p.mirror) {
+          lines.push(`  mirror ${p.mirror}: ${p.publish || 'being set up'}`)
+          if (p.mirrorKey) lines.push(`  deploy key (add it to ${p.mirror} with write access): ${p.mirrorKey}`)
+        }
       }
       if (!(v.projects ?? []).length) lines.push('- (none; idea_project_create makes one)')
       lines.push('', `Worker VMs (${v.workerSlots} sessions each, at most ${v.maxWorkers} VMs):`)

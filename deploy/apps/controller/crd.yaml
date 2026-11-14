@@ -92,6 +92,10 @@ spec:
                 conflicts:
                   type: integer
                   format: int64
+                # Times the agent was asked to fix a pull request that could not be published.
+                publishFixes:
+                  type: integer
+                  format: int64
 ---
 # Project: one repository idea works on (Forgejo organisation "idea", the
 # repository has the project's name). Issues in it become Tasks.
@@ -142,6 +146,23 @@ spec:
                   description: Example repository to start from (a directory under examples/), used once while the repository is empty.
                   type: string
                   pattern: '^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$'
+                mirror:
+                  description: Another Git server main is published to (for example a public GitHub repository). The controller keeps a push mirror with an SSH deploy key and syncs it only after checking new commits (commit e-mails, the machine's private strings); pull requests are checked before merging.
+                  type: object
+                  required: ["url"]
+                  properties:
+                    url:
+                      description: SSH address, git@host:owner/repo.git or ssh://git@host[:port]/owner/repo.git.
+                      type: string
+                      maxLength: 300
+                      pattern: '^(ssh://)?[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?[:/][A-Za-z0-9_~][A-Za-z0-9._~/-]*$'
+                    allowedEmails:
+                      description: "Regular expressions for commit e-mails that may be published, besides the machine's own bots. Default: GitHub noreply addresses."
+                      type: array
+                      maxItems: 20
+                      items:
+                        type: string
+                        maxLength: 200
                 import:
                   description: Public Git repository (https URL) the project's repository is copied from once, when it is created. Its history comes along; issues do not.
                   type: string
@@ -153,4 +174,14 @@ spec:
                 ready:
                   type: boolean
                 message:
+                  type: string
+                # The mirror (spec.mirror): last main commit pushed, last outcome,
+                # and the public SSH key to add to the other server.
+                published:
+                  type: string
+                publish:
+                  type: string
+                mirrorKey:
+                  type: string
+                mirrorUrl:
                   type: string

@@ -304,8 +304,12 @@ func (f *Forgejo) SetStatus(ctx context.Context, repo, sha, state, name, descrip
 }
 
 func (f *Forgejo) Merge(ctx context.Context, repo string, number int64) error {
+	// An explicit title: Forgejo's default merge message carries the
+	// machine's own address (Reviewed-on: https://<host>/...), which must not
+	// reach a public mirror.
 	return f.do(ctx, "POST", fmt.Sprintf("/repos/%s/pulls/%d/merge", repo, number), map[string]any{
 		"Do": "merge", "delete_branch_after_merge": true,
+		"MergeTitleField": fmt.Sprintf("Merge pull request #%d", number),
 	}, nil)
 }
 

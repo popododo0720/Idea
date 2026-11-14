@@ -368,6 +368,55 @@ Do not open a new pull request; the existing one follows the branch. Reply when 
 		map[string]any{"promptCursor": st.Cursor, "conflicts": conflicts + 1})
 }
 
+// publishHold checks a pull request of a mirrored project (publish.go) before
+// it is merged. When it may not be published, its agent is asked to fix the
+// branch (or the task fails after maxPublishFixes tries); held is true then.
+func (c *Controller) publishHold(ctx context.Context, t taskView, number int64) (bool, error) {
+	p, err := c.projectForRepo(ctx, t.repo)
+	if err != nil || p == nil || p.Mirror == "" {
+		return false, err
+	}
+	problem, err := c.pullRequestProblem(ctx, *p, number)
+	if err != nil {
+		// Held until it can be checked (for example, no list of private strings yet).
+		msg := "not merged yet: " + err.Error()
+		if cur, _, _ := unstructured.NestedString(t.obj.Object, "status", "message"); cur != msg {
+			_ = c.setPhase(ctx, t, phaseGate, msg, nil)
+		}
+		return true, nil
+	}
+	if problem == "" {
+		return false, nil
+	}
+	fixes, _, _ := unstructured.NestedInt64(t.obj.Object, "status", "publishFixes")
+	if fixes >= maxPublishFixes || t.session == "" {
+		_ = c.fj.Comment(ctx, t.repo, t.issue, fmt.Sprintf(
+			"Pull request #%d was **not merged**: this repository is published to a mirror, and %s. (idea task `%s`)", number, problem, t.name))
+		return true, c.fail(ctx, t, fmt.Sprintf("pull request #%d cannot be published (%s); not merged", number, problem))
+	}
+	d := c.dshOf(t)
+	st, err := d.state(ctx, t.session)
+	if errors.Is(err, errDshNotReady) {
+		return true, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	text := fmt.Sprintf(`Pull request #%d passed its tests but cannot be merged: this repository is published to a mirror, and %s.
+Fix branch %s:
+- An e-mail problem: commits must use the git identity this machine set up (git config user.email). Rewrite them with
+  git rebase origin/main --exec 'git commit --amend --no-edit --reset-author'
+- A private name or address: names and addresses of the network this machine runs in (host names, internal domains, IP addresses) must not be in the code, commit messages or file names. Replace them with placeholders or settings, and rewrite the commits that added them (git rebase -i is not available; use git reset --soft origin/main and commit again).
+Then run the tests and git push --force-with-lease. Do not open a new pull request. Reply when it is pushed.`, number, problem, t.branch)
+	if err := d.prompt(ctx, t.session, fmt.Sprintf("idea-%s-publish-%d", t.name, fixes+1), text); err != nil {
+		return true, err
+	}
+	_ = c.fj.Comment(ctx, t.repo, t.issue, fmt.Sprintf(
+		"Pull request #%d cannot be published yet (%s); its agent is fixing it. (idea task `%s`)", number, problem, t.name))
+	return true, c.setPhase(ctx, t, phaseWorking, fmt.Sprintf("pull request #%d cannot be published yet; the agent is fixing it", number),
+		map[string]any{"promptCursor": st.Cursor, "publishFixes": fixes + 1})
+}
+
 // waitMessage records why a pending task is waiting, once.
 func (c *Controller) waitMessage(ctx context.Context, t taskView, msg string) error {
 	if cur, _, _ := unstructured.NestedString(t.obj.Object, "status", "message"); cur == msg {
@@ -411,6 +460,9 @@ func (c *Controller) gate(ctx context.Context, t taskView) error {
 	}
 	switch {
 	case st.TotalCount > 0 && st.State == "success":
+		if held, err := c.publishHold(ctx, t, pr.Number); err != nil || held {
+			return err
+		}
 		if err := c.fj.Merge(ctx, t.repo, pr.Number); err != nil {
 			return fmt.Errorf("merge: %w", err)
 		}
