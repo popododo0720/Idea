@@ -326,6 +326,45 @@ func (c *Controller) startSession(ctx context.Context, t taskView) error {
 	})
 }
 
+// maxConflicts is how often a task's agent is asked to rebase before the
+// task fails.
+const maxConflicts = 3
+
+// resolveConflict asks the task's agent, in its session, to rebase the pull
+// request onto the latest main; the task goes back to Working and through
+// the gate again with the new commit.
+func (c *Controller) resolveConflict(ctx context.Context, t taskView, number int64) error {
+	conflicts, _, _ := unstructured.NestedInt64(t.obj.Object, "status", "conflicts")
+	if conflicts >= maxConflicts {
+		return c.fail(ctx, t, fmt.Sprintf("pull request #%d still conflicts with main after %d rebases; not merged", number, conflicts))
+	}
+	if t.session == "" {
+		return c.fail(ctx, t, fmt.Sprintf("pull request #%d conflicts with main", number))
+	}
+	d := c.dshOf(t)
+	st, err := d.state(ctx, t.session)
+	if errors.Is(err, errDshNotReady) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	text := fmt.Sprintf(`Pull request #%d can no longer be merged: other work was merged into main meanwhile and it conflicts.
+Update branch %s:
+1. git fetch origin && git rebase origin/main
+2. Resolve every conflict so both the work already on main and this issue's change are kept.
+3. Run the tests with: npm test
+4. git push --force-with-lease
+Do not open a new pull request; the existing one follows the branch. Reply when it is pushed.`, number, t.branch)
+	if err := d.prompt(ctx, t.session, fmt.Sprintf("idea-%s-conflict-%d", t.name, conflicts+1), text); err != nil {
+		return err
+	}
+	_ = c.fj.Comment(ctx, t.repo, t.issue, fmt.Sprintf(
+		"Pull request #%d conflicts with main after other work was merged; its agent is rebasing it. (idea task `%s`)", number, t.name))
+	return c.setPhase(ctx, t, phaseWorking, fmt.Sprintf("pull request #%d conflicts with main; the agent is rebasing it", number),
+		map[string]any{"promptCursor": st.Cursor, "conflicts": conflicts + 1})
+}
+
 // waitMessage records why a pending task is waiting, once.
 func (c *Controller) waitMessage(ctx context.Context, t taskView, msg string) error {
 	if cur, _, _ := unstructured.NestedString(t.obj.Object, "status", "message"); cur == msg {
@@ -348,6 +387,12 @@ func (c *Controller) gate(ctx context.Context, t taskView) error {
 		return c.setPhase(ctx, t, phaseDone, fmt.Sprintf("pull request #%d merged", pr.Number), nil)
 	}
 	sha := pr.Head.SHA
+
+	// Tasks run side by side: another task's pull request may have been
+	// merged first and this one now conflicts with main. Its agent rebases.
+	if pr.State == "open" && !pr.Mergeable && time.Since(t.since) > time.Minute {
+		return c.resolveConflict(ctx, t, pr.Number)
+	}
 
 	if c.cfg.GateMode == "controller" {
 		// Run the tests ourselves in a clean Kata pod and record the result

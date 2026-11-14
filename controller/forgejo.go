@@ -221,7 +221,10 @@ type PullRequest struct {
 	Number int64  `json:"number"`
 	State  string `json:"state"`
 	Merged bool   `json:"merged"`
-	URL    string `json:"html_url"`
+	// False while it conflicts with its base (Forgejo checks this shortly
+	// after every push to either side).
+	Mergeable bool   `json:"mergeable"`
+	URL       string `json:"html_url"`
 	Head   struct {
 		Ref string `json:"ref"`
 		SHA string `json:"sha"`
