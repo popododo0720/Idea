@@ -295,6 +295,10 @@ func (c *Controller) apiHandler() http.Handler {
 		})
 	})
 
+	// The machine's Forgejo repositories, for the plugin's Git tab.
+	authed.HandleFunc("GET /api/v1/git/{rest...}", c.handleGit)
+	authed.HandleFunc("POST /api/v1/git/{rest...}", c.handleGit)
+
 	authed.HandleFunc("POST /api/v1/projects", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Name        string `json:"name"`

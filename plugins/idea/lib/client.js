@@ -496,10 +496,138 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
     function loadPref(key) { try { return localStorage.getItem("idea." + key) || ""; } catch { return ""; } }
     function savePref(key, v) { try { localStorage.setItem("idea." + key, v); } catch { /* private window */ } }
 
+    // The machine's Forgejo repositories: branches, commits, pull requests
+    // and their diffs, through the machine API (/api/v1/git/...).
+    function ForgeView({ full, picker }) {
+      const [branches, setBranches] = useState([]);
+      const [pulls, setPulls] = useState([]);
+      const [commits, setCommits] = useState([]);
+      const [info, setInfo] = useState(null);
+      const [logRef, setLogRef] = useState("");
+      const [sel, setSel] = useState(null);
+      const [diff, setDiff] = useState(null);
+      const [error, setError] = useState(null);
+      const [note, setNote] = useState("");
+      const [busy, setBusy] = useState("");
+      const [open, setOpen] = useState({ pulls: true, branches: true, commits: true });
+      const toggle = k => setOpen(Object.assign({}, open, { [k]: !open[k] }));
+      const base = "/v1/git/repos/" + full;
+
+      useEffect(() => { setLogRef(""); setSel(null); setDiff(null); setInfo(null); setBranches([]); setPulls([]); setCommits([]); }, [full]);
+
+      const refresh = useCallback(async () => {
+        try {
+          const [b, p, s] = await Promise.all([
+            api("GET", base + "/branches?limit=50"),
+            api("GET", base + "/pulls?state=open&limit=50"),
+            api("GET", "/v1/git/repos/search?limit=50&q=" + encodeURIComponent(full.split("/")[1])),
+          ]);
+          setBranches(Array.isArray(b) ? b : []);
+          setPulls(Array.isArray(p) ? p : []);
+          const me = s && Array.isArray(s.data) ? s.data.find(r => r.full_name === full) : null;
+          setInfo(me || null);
+          const ref = logRef || (me && me.default_branch) || "";
+          const c = await api("GET", base + "/commits?limit=100&stat=false&verification=false&files=false" + (ref ? "&sha=" + encodeURIComponent(ref) : ""));
+          setCommits(Array.isArray(c) ? c : []);
+          setError(null);
+        } catch (err) { setError(err); }
+      }, [base, full, logRef]);
+      useEffect(() => {
+        refresh();
+        const t = setInterval(refresh, 20000);
+        return () => clearInterval(t);
+      }, [refresh]);
+
+      const show = async (pick, path, title) => {
+        setSel(pick);
+        setDiff({ title, text: "", loading: true });
+        try { const r = await api("GET", base + path); setDiff({ title, text: r.diff, clipped: r.clipped }); }
+        catch (err) { setDiff({ title, text: "", error: String(err.message || err) }); }
+      };
+      const merge = async (pr, how) => {
+        if (!confirm("Merge pull request #" + pr.number + " (" + how + ") into " + pr.base.ref + "?")) return;
+        setBusy("merge"); setError(null);
+        try {
+          await api("POST", base + "/pulls/" + pr.number + "/merge", { Do: how, delete_branch_after_merge: true });
+          setNote("Merged #" + pr.number);
+          await refresh();
+        } catch (err) { setError(err); }
+        setBusy("");
+      };
+
+      const current = logRef || (info && info.default_branch) || "";
+      const prRow = pr => {
+        const key = "p:" + pr.number;
+        return h("div", { key, className: "idea-item", "aria-selected": sel === key ? "true" : "false", title: pr.title + "\n" + pr.head.ref + " → " + pr.base.ref,
+          onClick: () => show(key, "/pulls/" + pr.number + ".diff", "#" + pr.number + "  " + pr.title) },
+          h("span", { className: "idea-tag", style: { flex: "none" } }, "#" + pr.number),
+          h("span", { className: "idea-ellipsis idea-grow" }, pr.title, h("span", { className: "idea-dim" }, "  " + pr.head.ref + " → " + pr.base.ref)),
+          pr.mergeable === false ? h("span", { className: "idea-st idea-st-D", title: "Conflicts" }, "!") : null,
+          h("span", { className: "idea-dim", style: { fontSize: "12px", flex: "none" } }, ago(pr.updated_at)),
+          h("span", { className: "idea-acts" }, h(MoreMenu, { items: [
+            { label: "Merge", disabled: !!busy || pr.mergeable === false, onSelect: () => merge(pr, "merge") },
+            { label: "Squash and merge", disabled: !!busy || pr.mergeable === false, onSelect: () => merge(pr, "squash") },
+            { label: "Rebase and merge", disabled: !!busy || pr.mergeable === false, onSelect: () => merge(pr, "rebase") },
+            { label: "Open in Forgejo", disabled: !pr.html_url, onSelect: () => window.open(pr.html_url, "_blank", "noopener") },
+          ] })));
+      };
+      const branchRow = b => h("div", { key: b.name, className: "idea-item", "aria-selected": current === b.name ? "true" : "false",
+        title: b.commit ? String(b.commit.message || "").split("\n")[0] : "", onClick: () => setLogRef(b.name) },
+        h("span", { className: "idea-dot" + (info && info.default_branch === b.name ? " idea-dot-working" : "") }),
+        h("span", { className: "idea-ellipsis idea-grow" }, b.name),
+        b.protected ? h("span", { className: "idea-dim", style: { fontSize: "12px" } }, "protected") : null,
+        b.commit && b.commit.timestamp ? h("span", { className: "idea-dim", style: { fontSize: "12px", flex: "none" } }, ago(b.commit.timestamp)) : null);
+      const commitRow = c => {
+        const key = "c:" + c.sha;
+        const subject = String((c.commit && c.commit.message) || "").split("\n")[0];
+        const who = c.commit && c.commit.author ? c.commit.author : {};
+        return h("div", { key, className: "idea-item", "aria-selected": sel === key ? "true" : "false", title: subject + "\n" + (who.name || "") + " · " + (who.date || ""),
+          onClick: () => show(key, "/git/commits/" + c.sha + ".diff", c.sha.slice(0, 7) + "  " + subject) },
+          h("span", { className: "idea-tag", style: { flex: "none" } }, c.sha.slice(0, 7)),
+          h("span", { className: "idea-ellipsis idea-grow" }, subject),
+          h("span", { className: "idea-dim", style: { fontSize: "12px", flex: "none" } }, ago(who.date)),
+          h("span", { className: "idea-acts" }, h(MoreMenu, { items: [
+            { label: "Copy SHA", onSelect: () => { try { navigator.clipboard.writeText(c.sha); setNote("Copied " + c.sha.slice(0, 7)); } catch { /* no clipboard */ } } },
+            { label: "Open in Forgejo", disabled: !c.html_url, onSelect: () => window.open(c.html_url, "_blank", "noopener") },
+          ] })));
+      };
+
+      const bar = h("div", { className: "idea-git-bar" }, picker,
+        branches.length ? h(Picker, {
+          label: current || "branch", search: branches.length > 8 ? "Search branches..." : "",
+          groups: [{ label: "Branches", items: branches.map(b => ({ key: b.name, label: b.name, checked: b.name === current, onSelect: () => setLogRef(b.name) })) }],
+        }) : null,
+        h("span", { className: "idea-toast idea-grow", title: note }, busy ? "Merging…" : note),
+        info && info.html_url ? h("button", { type: "button", className: "idea-btn", onClick: () => window.open(info.html_url, "_blank", "noopener") }, "Open in Forgejo") : null,
+        h("button", { type: "button", className: "idea-btn", onClick: refresh, title: "Refresh", "aria-label": "Refresh" }, "↻"));
+
+      const side = h("div", { className: "idea-git-side" },
+        error ? h("div", { style: { margin: "8px 4px" } }, h(ErrorLine, { error })) : null,
+        h(Section, { title: "Pull requests", count: pulls.length, open: open.pulls, onToggle: () => toggle("pulls") },
+          pulls.map(prRow),
+          !pulls.length ? h("p", { className: "idea-hint", style: { margin: "4px 8px" } }, "No open pull requests.") : null),
+        h(Section, { title: "Branches", count: branches.length, open: open.branches, onToggle: () => toggle("branches") }, branches.map(branchRow)),
+        h(Section, { title: current ? "Commits · " + current : "Commits", count: commits.length, open: open.commits, onToggle: () => toggle("commits") },
+          commits.map(commitRow),
+          !commits.length ? h("p", { className: "idea-hint", style: { margin: "4px 8px" } }, "No commits yet.") : null));
+
+      return h(React.Fragment, null, bar, h("div", { className: "idea-git" }, side, h(DiffPane, { diff })));
+    }
+
+    function DiffPane({ diff }) {
+      return h("div", { className: "idea-git-main" },
+        h("div", { className: "idea-diff-head" }, h("span", { className: "idea-ellipsis idea-grow" }, diff ? diff.title : "Pick something on the left to see its changes.")),
+        diff ? (diff.error ? h("div", { style: { padding: "12px 16px" } }, h(ErrorLine, { error: diff.error }))
+          : diff.loading ? h("p", { className: "idea-hint", style: { padding: "12px 16px" } }, "Loading…")
+          : h(React.Fragment, null, h(DiffView, { text: diff.text || "(no changes)" }), diff.clipped ? h("p", { className: "idea-hint", style: { padding: "4px 16px" } }, "Cut at the size limit.") : null))
+          : null);
+    }
+
     // Git, mouse first (lazygit's panels): files, branches, commits and
     // stashes on the left, the diff of what is picked on the right.
     function GitView({ visible }) {
       const [repos, setRepos] = useState(null);
+      const [machine, setMachine] = useState(null);
       const [repo, setRepo] = useState(loadPref("gitRepo"));
       const [st, setSt] = useState(null);
       const [commits, setCommits] = useState([]);
@@ -513,13 +641,20 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
       const [note, setNote] = useState("");
       const [open, setOpen] = useState({ files: true, branches: true, commits: true, stash: false, remotes: false });
       const toggle = k => setOpen(Object.assign({}, open, { [k]: !open[k] }));
-      const base = repo ? "/git/local/" + encodeURIComponent(repo) : "";
+      const isMachine = repo.startsWith("m:");
+      const base = repo && !isMachine ? "/git/local/" + encodeURIComponent(repo) : "";
 
       const loadRepos = useCallback(async () => {
         try {
-          const r = await api("GET", "/git/repos");
-          setRepos(r.local || []);
-          if ((!repo || !(r.local || []).some(x => x.id === repo)) && r.local && r.local[0]) setRepo(r.local[0].id);
+          const [r, m] = await Promise.all([
+            api("GET", "/git/repos"),
+            api("GET", "/v1/git/repos/search?limit=50&sort=updated").catch(() => null),
+          ]);
+          const local = r.local || [];
+          const mach = m && Array.isArray(m.data) ? m.data.map(x => ({ id: "m:" + x.full_name, title: x.full_name, root: x.html_url || "" })) : [];
+          setRepos(local); setMachine(mach);
+          const all = local.concat(mach);
+          if ((!repo || !all.some(x => x.id === repo)) && all[0]) setRepo(all[0].id);
         } catch (err) { setError(err); }
       }, [repo]);
       useEffect(() => { if (visible && !repos) loadRepos(); }, [visible, repos, loadRepos]);
@@ -634,14 +769,21 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
           ] })));
       };
 
-      const repoItem = repos && repos.find(r => r.id === repo);
+      const allRepos = (repos || []).concat(machine || []);
+      const repoItem = allRepos.find(r => r.id === repo);
+      const repoPicker = h(Picker, {
+        label: repoItem ? repoItem.title : (repos && !allRepos.length ? "No git repositories" : "Choose a repository"),
+        title: repoItem ? repoItem.root : "", search: allRepos.length > 8 ? "Search repositories..." : "",
+        groups: [{ label: "This computer", items: (repos || []).map(r => ({ key: r.id, label: r.title, title: r.root, checked: r.id === repo, onSelect: () => setRepo(r.id) })) },
+                 { label: "Machine", items: (machine || []).map(r => ({ key: r.id, label: r.title, title: r.root, checked: r.id === repo, onSelect: () => setRepo(r.id) })) },
+                 { label: "", items: [{ key: "reload", label: "Reload the list", onSelect: () => { setRepos(null); } }] }],
+      });
+      if (isMachine) {
+        return h("div", { className: visible ? "idea-team" : "idea-hide", style: { flexDirection: "column" } },
+          visible ? h(ForgeView, { full: repo.slice(2), picker: repoPicker }) : null);
+      }
       const bar = h("div", { className: "idea-git-bar" },
-        h(Picker, {
-          label: repoItem ? repoItem.title : (repos && !repos.length ? "No git repositories" : "Choose a repository"),
-          title: repoItem ? repoItem.root : "", search: repos && repos.length > 8 ? "Search repositories..." : "",
-          groups: [{ label: "This computer", items: (repos || []).map(r => ({ key: r.id, label: r.title, detail: "", title: r.root, checked: r.id === repo, onSelect: () => setRepo(r.id) })) },
-                   { label: "", items: [{ key: "reload", label: "Reload the list", onSelect: () => { setRepos(null); } }] }],
-        }),
+        repoPicker,
         head ? h(Picker, {
           label: current || "(detached)", sub: head.upstream ? (head.ahead ? "↑" + head.ahead + " " : "") + (head.behind ? "↓" + head.behind : "") : "no upstream",
           search: local.length > 8 ? "Search branches..." : "",
@@ -660,7 +802,7 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
 
       const side = h("div", { className: "idea-git-side" },
         error ? h("div", { style: { margin: "8px 4px" } }, h(ErrorLine, { error })) : null,
-        repos && !repos.length ? h("p", { className: "idea-hint", style: { margin: "12px 8px" } }, "None of this dsh's workspaces is a git repository. Open a folder with a repository as a workspace and it shows up here.") : null,
+        repos && !allRepos.length ? h("p", { className: "idea-hint", style: { margin: "12px 8px" } }, "None of this dsh's workspaces is a git repository. Open a folder with a repository as a workspace and it shows up here.") : null,
         st ? h(React.Fragment, null,
           h(Section, { title: "Files", count: files.length, open: open.files, onToggle: () => toggle("files"),
             actions: [
@@ -693,15 +835,8 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
             !st.stashes.length ? h("p", { className: "idea-hint", style: { margin: "4px 8px" } }, "No stashes.") : null))
           : (repo && !error ? h("p", { className: "idea-hint", style: { margin: "12px 8px" } }, "Loading…") : null));
 
-      const main = h("div", { className: "idea-git-main" },
-        h("div", { className: "idea-diff-head" }, h("span", { className: "idea-ellipsis idea-grow" }, diff ? diff.title : "Pick a file, a commit or a stash to see its changes.")),
-        diff ? (diff.error ? h("div", { style: { padding: "12px 16px" } }, h(ErrorLine, { error: diff.error }))
-          : diff.loading ? h("p", { className: "idea-hint", style: { padding: "12px 16px" } }, "Loading…")
-          : h(React.Fragment, null, h(DiffView, { text: diff.text || "(no changes)" }), diff.clipped ? h("p", { className: "idea-hint", style: { padding: "4px 16px" } }, "Cut at 2 MB.") : null))
-          : null);
-
       return h("div", { className: visible ? "idea-team" : "idea-hide", style: { flexDirection: "column" } },
-        bar, h("div", { className: "idea-git" }, side, main));
+        bar, h("div", { className: "idea-git" }, side, h(DiffPane, { diff })));
     }
 
     function MachineView({ state, onUnpaired }) {

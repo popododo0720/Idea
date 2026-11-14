@@ -45,8 +45,13 @@ idea panel          ──/idea/*──▶ this plugin ──HTTPS, pinned──
   branches), the commits of the picked branch (revert, cherry-pick, new
   branch, copy the SHA) and the stashes (apply, pop, drop); on the right the
   diff of what is picked. It shows the git repositories of this dsh's
-  workspaces. The panel uses dsh's design tokens, so it follows the dsh theme
+  workspaces and, under "Machine", the machine's Forgejo repositories
+  (pull requests with their diffs and merge, branches, commits). The panel uses dsh's design tokens, so it follows the dsh theme
   and font settings.
+- The machine's repositories come through the machine API
+  (`/api/v1/git/...`), which passes on only a fixed set of Forgejo calls:
+  repository search, branches, commits, pull requests, commit and pull
+  request diffs, and merging a pull request.
 - `lib/git-local.js` runs the Git tab's commands for this dsh's workspaces.
   A repository is named by its workspace id, never by a path from the
   browser; each command is a fixed argument list run without a shell, branch
