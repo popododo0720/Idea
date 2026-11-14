@@ -143,6 +143,13 @@ func randomHex(n int) string {
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	if err := run(); err != nil {
+		slog.Error("controller stopped", "err", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	cfg := loadConfig()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -150,8 +157,7 @@ func main() {
 
 	rc, err := rest.InClusterConfig()
 	if err != nil {
-		slog.Error("kubernetes config", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("kubernetes config: %w", err)
 	}
 	c := &Controller{
 		cfg:  cfg,
@@ -171,34 +177,33 @@ func main() {
 		slog.Warn("database not ready", "err", err.Error())
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		case <-time.After(5 * time.Second):
 		}
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("/webhook/forgejo", c.handleWebhook)
 	mux.HandleFunc("/team/placement", c.handleTeamPlacement)
 	c.agentMux(mux)
 	srv := &http.Server{Addr: ":8080", Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("http server", "err", err)
-			os.Exit(1)
-		}
-	}()
 
 	// Setup page for the owner (HTTPS, NodePort): see setup.go.
 	setup, err := c.setupServer(ctx)
 	if err != nil {
-		slog.Error("setup server", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("setup server: %w", err)
 	}
+
+	failed := make(chan error, 2)
 	go func() {
-		if err := setup.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
-			slog.Error("setup server", "err", err)
-			os.Exit(1)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			failed <- fmt.Errorf("http server: %w", err)
+		}
+	}()
+	go func() {
+		if err := setup.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			failed <- fmt.Errorf("setup server: %w", err)
 		}
 	}()
 
@@ -209,11 +214,15 @@ func main() {
 	go c.loop(ctx, "publish", 60*time.Second, c.publishAll)
 
 	slog.Info("controller started", "org", cfg.Org, "host", cfg.Host, "gate", cfg.GateMode)
-	<-ctx.Done()
+	select {
+	case <-ctx.Done():
+	case err = <-failed:
+	}
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdown)
 	_ = setup.Shutdown(shutdown)
+	return err
 }
 
 func (c *Controller) loop(ctx context.Context, name string, every time.Duration, fn func(context.Context) error) {
@@ -428,7 +437,7 @@ func readSeed(dir string) ([]SeedFile, error) {
 		if strings.HasPrefix(rel, "node_modules/") {
 			return nil
 		}
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) //nolint:gosec // G304: walking the seed directory the controller ships
 		if err != nil {
 			return err
 		}

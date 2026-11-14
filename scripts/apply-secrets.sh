@@ -17,9 +17,10 @@ envf="$IDEA_SECRETS_DIR/env"
 [ "$(stat -c %a "$envf")" = 600 ] || die "$envf must have mode 600"
 
 # Keep only assignments that have a value.
-tmp="$(mktemp -d /dev/shm/idea-secrets.XXXXXX)"; chmod 700 "$tmp"
+tmp="$(mktemp -d /dev/shm/idea-secrets.XXXXXX)"
+chmod 700 "$tmp"
 trap 'rm -rf "$tmp"' EXIT
-grep -E '^[A-Za-z_][A-Za-z0-9_]*=.+' "$envf" > "$tmp/env" || true
+grep -E '^[A-Za-z_][A-Za-z0-9_]*=.+' "$envf" >"$tmp/env" || true
 [ -s "$tmp/env" ] || die "$envf has no filled-in values"
 keys="$(cut -d= -f1 "$tmp/env" | tr '\n' ' ')"
 
@@ -30,9 +31,9 @@ for ns in $SECRET_NAMESPACES; do
     continue
   fi
   kubectl -n "$ns" create secret generic "$name" \
-      --from-env-file="$tmp/env" --dry-run=client -o yaml \
+    --from-env-file="$tmp/env" --dry-run=client -o yaml \
     | kubectl label --local -f - -o yaml \
-        app.kubernetes.io/managed-by=apply-secrets \
+      app.kubernetes.io/managed-by=apply-secrets \
     | kubectl apply -f - >/dev/null
   log "secret $ns/$name updated (keys: $keys)"
 done

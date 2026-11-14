@@ -21,6 +21,7 @@
 
 import { readFile } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
+import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 export const name = 'idea-orchestrator'
@@ -38,13 +39,30 @@ const IMPORT = /^https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?\/[A-Za-z0-9._~/-]+$/
 const MIRROR = /^(ssh:\/\/)?[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?[:/][A-Za-z0-9_~][A-Za-z0-9._~/-]*$/
 const MAX_BODY = 8 * 1024 * 1024
 
+/** A JSON answer; `value` is null when the body was not JSON. */
+type Reply<T = unknown> = { status: number, value: T }
+
+interface ProjectValue { name: string, repo: string }
+interface StatusProject { name: string, repo: string, ready?: boolean, message?: string, mirror?: string, publish?: string, mirrorKey?: string }
+interface StatusWorker { name: string, phase: string, active: number }
+interface StatusTask { project: string, issue: number, title: string, phase: string, vm?: string, pullRequest?: number, message?: string }
+interface StatusValue {
+  projects?: StatusProject[]
+  workers?: StatusWorker[]
+  workerSlots?: number
+  maxWorkers?: number
+  note?: string
+  tasks?: StatusTask[]
+}
+interface ForgejoIssue { number: number, title: string, state: string, html_url?: string }
+
 const TEXT_OUTPUT = {
   schema: {
     type: 'object',
     additionalProperties: false,
     properties: { text: { type: 'string', required: true } },
   },
-  render: (_args: unknown, v: { text: string }) => [{ type: 'text', text: v.text }],
+  render: (_args: unknown, v: { text: string }) => [{ type: 'text' as const, text: v.text }],
 } as const
 
 async function secret(file: string, env?: string): Promise<string> {
@@ -56,7 +74,7 @@ async function secret(file: string, env?: string): Promise<string> {
 }
 
 /** One JSON request to the controller's agent API. */
-async function controller(method: string, path: string, payload?: unknown, signal?: AbortSignal): Promise<{ status: number, value: any }> {
+async function controller<T = unknown>(method: string, path: string, payload?: unknown, signal?: AbortSignal): Promise<Reply<T>> {
   const token = await secret(TOKEN_FILE)
   if (!token) throw new Error('this machine has no team token yet (Secret idea-team); try again in a minute')
   const data = payload === undefined ? undefined : Buffer.from(JSON.stringify(payload))
@@ -79,9 +97,9 @@ async function controller(method: string, path: string, payload?: unknown, signa
         chunks.push(c)
       })
       res.on('end', () => {
-        let value: any = null
+        let value: unknown = null
         try { value = JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null') } catch { /* not JSON */ }
-        resolve({ status: res.statusCode || 0, value })
+        resolve({ status: res.statusCode || 0, value: value as T })
       })
       res.on('error', reject)
     })
@@ -91,7 +109,7 @@ async function controller(method: string, path: string, payload?: unknown, signa
   })
 }
 
-async function forgejo(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<any> {
+async function forgejo<T = unknown>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const token = await secret(FORGEJO_TOKEN_FILE, 'FORGEJO_TOKEN')
   if (!FORGEJO_API || !token) throw new Error('Forgejo is not configured in this dsh')
   const res = await fetch(FORGEJO_API + path, {
@@ -106,7 +124,7 @@ async function forgejo(method: string, path: string, body?: unknown, signal?: Ab
   })
   const text = await res.text()
   if (!res.ok) throw new Error(`Forgejo ${method} ${path}: HTTP ${res.status}: ${text.slice(0, 300)}`)
-  return text ? JSON.parse(text) : null
+  return (text ? JSON.parse(text) : null) as T
 }
 
 /** At most n UTF-8 bytes, cut at a character boundary. */
@@ -119,12 +137,11 @@ function clipBytes(text: string, n: number): string {
   return out
 }
 
-function errorOf(r: { status: number, value: any }): string {
-  return String(r.value?.error ?? `HTTP ${r.status}`)
+function errorOf(r: Reply): string {
+  return String((r.value as { error?: unknown } | null)?.error ?? `HTTP ${r.status}`)
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function apply(ctx: any) {
+export function apply(ctx: Context) {
   if (SELF !== 'idea-dsh') return
 
   ctx.tools.register(defineTool({
@@ -138,12 +155,12 @@ export function apply(ctx: any) {
       import_url: { type: 'string', description: 'Public https Git URL to copy the code from (optional)' },
     },
     output: TEXT_OUTPUT,
-    async execute(args: { name: string, description?: string, import_url?: string }, exec: any) {
+    async execute(args: { name: string, description?: string, import_url?: string }, exec) {
       const name = String(args.name).trim().toLowerCase()
       if (!PROJECT.test(name)) throw new Error('name: lowercase letters, digits and dashes, up to 40 characters')
       const from = String(args.import_url ?? '').trim()
       if (from && !IMPORT.test(from)) throw new Error('import_url: a public https Git URL without credentials')
-      const r = await controller('POST', '/agent/projects', {
+      const r = await controller<ProjectValue>('POST', '/agent/projects', {
         name, description: clipBytes(String(args.description ?? ''), 500), import: from,
       }, exec?.signal)
       if (r.status !== 201) throw new Error(`could not create project ${name}: ${errorOf(r)}`)
@@ -169,7 +186,7 @@ export function apply(ctx: any) {
       allowed_emails: { type: 'string', description: 'Regular expressions for commit e-mails that may be published, one per line (optional; default GitHub noreply addresses)' },
     },
     output: TEXT_OUTPUT,
-    async execute(args: { name: string, url: string, allowed_emails?: string }, exec: any) {
+    async execute(args: { name: string, url: string, allowed_emails?: string }, exec) {
       const name = String(args.name).trim().toLowerCase()
       if (!PROJECT.test(name)) throw new Error('name: a project name')
       const url = String(args.url ?? '').trim()
@@ -191,8 +208,8 @@ export function apply(ctx: any) {
       'and tasks (one per open issue) with their phase, VM and pull request.',
     parameters: {},
     output: TEXT_OUTPUT,
-    async execute(_args: unknown, exec: any) {
-      const r = await controller('GET', '/agent/status', undefined, exec?.signal)
+    async execute(_args: unknown, exec) {
+      const r = await controller<StatusValue>('GET', '/agent/status', undefined, exec?.signal)
       if (r.status !== 200) throw new Error(`status: ${errorOf(r)}`)
       const v = r.value
       const lines: string[] = ['Projects:']
@@ -230,11 +247,11 @@ export function apply(ctx: any) {
       body: { type: 'string', required: true, description: 'What to do, what done means, tests to add (Markdown)' },
     },
     output: TEXT_OUTPUT,
-    async execute(args: { repo: string, title: string, body: string }, exec: any) {
+    async execute(args: { repo: string, title: string, body: string }, exec) {
       if (!REPO.test(args.repo)) throw new Error('repo: owner/name')
       const title = String(args.title).trim().slice(0, 250)
       if (!title) throw new Error('empty title')
-      const issue = await forgejo('POST', `/repos/${args.repo}/issues`, {
+      const issue = await forgejo<ForgejoIssue>('POST', `/repos/${args.repo}/issues`, {
         title, body: String(args.body ?? '').slice(0, 60_000),
       }, exec?.signal)
       return { text: `Opened ${args.repo}#${issue.number}: ${issue.title}\n${issue.html_url ?? ''}` }
@@ -249,10 +266,10 @@ export function apply(ctx: any) {
       state: { type: 'string', description: '"open" (default), "closed" or "all"' },
     },
     output: TEXT_OUTPUT,
-    async execute(args: { repo: string, state?: string }, exec: any) {
+    async execute(args: { repo: string, state?: string }, exec) {
       if (!REPO.test(args.repo)) throw new Error('repo: owner/name')
       const state = ['open', 'closed', 'all'].includes(String(args.state)) ? String(args.state) : 'open'
-      const list: any[] = await forgejo('GET', `/repos/${args.repo}/issues?state=${state}&type=issues&limit=50`, undefined, exec?.signal)
+      const list = await forgejo<ForgejoIssue[]>('GET', `/repos/${args.repo}/issues?state=${state}&type=issues&limit=50`, undefined, exec?.signal)
       const lines = list.map(i => `- #${i.number} [${i.state}] ${i.title}`)
       return { text: lines.length ? lines.join('\n') : `No ${state} issues in ${args.repo}.` }
     },

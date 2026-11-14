@@ -7,7 +7,10 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 export REPO_ROOT
 
-die() { echo "error: $*" >&2; exit 1; }
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
 log() { echo "==> $*" >&2; }
 
 export IDEA_SECRETS_DIR="${IDEA_SECRETS_DIR:-$HOME/.idea-secrets}"
@@ -66,9 +69,17 @@ require_idea_name() {
 
 # libvirt network state. Output is captured first: piping virsh straight into
 # `grep -q` can fail under pipefail when grep exits early.
-net_exists()    { virsh net-info "$1" >/dev/null 2>&1; }
-net_active()    { local o; o="$(virsh net-info "$1" 2>/dev/null)" || return 1; grep -q '^Active:.*yes' <<<"$o"; }
-net_autostart() { local o; o="$(virsh net-info "$1" 2>/dev/null)" || return 1; grep -q '^Autostart:.*yes' <<<"$o"; }
+net_exists() { virsh net-info "$1" >/dev/null 2>&1; }
+net_active() {
+  local o
+  o="$(virsh net-info "$1" 2>/dev/null)" || return 1
+  grep -q '^Active:.*yes' <<<"$o"
+}
+net_autostart() {
+  local o
+  o="$(virsh net-info "$1" 2>/dev/null)" || return 1
+  grep -q '^Autostart:.*yes' <<<"$o"
+}
 
 # collect_secret_values <file>
 #   Write "source<TAB>value" for every real secret value found in
@@ -77,26 +88,30 @@ net_autostart() { local o; o="$(virsh net-info "$1" 2>/dev/null)" || return 1; g
 #   Talos/Kubernetes credential files (16+ chars, URLs excluded).
 collect_secret_values() {
   local out=$1 envf line k v y f
-  : > "$out"
+  : >"$out"
   envf="$IDEA_SECRETS_DIR/env"
   if [ -f "$envf" ]; then
     while IFS= read -r line || [ -n "$line" ]; do
-      case "$line" in ''|'#'*) continue ;; esac
-      k="${line%%=*}"; v="${line#*=}"
+      case "$line" in '' | '#'*) continue ;; esac
+      k="${line%%=*}"
+      v="${line#*=}"
       [ "$k" != "$line" ] || continue
       k="${k#export }"
-      v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
+      v="${v%\"}"
+      v="${v#\"}"
+      v="${v%\'}"
+      v="${v#\'}"
       [ "${#v}" -ge 8 ] || continue
-      printf '%s\t%s\n' "env:$k" "$v" >> "$out"
-    done < "$envf"
+      printf '%s\t%s\n' "env:$k" "$v" >>"$out"
+    done <"$envf"
   fi
   for y in talos/secrets.yaml talos/talosconfig kubeconfig \
-           iso/secrets.yaml iso/talosconfig iso/kubeconfig iso/talosconfig-generated; do
+    iso/secrets.yaml iso/talosconfig iso/kubeconfig iso/talosconfig-generated; do
     f="$IDEA_SECRETS_DIR/$y"
     [ -f "$f" ] || continue
-    yq -o=json '[.. | select(tag == "!!str") | {"k": (path | join(".")), "v": .}]' "$f" |
-      jq -r --arg src "$y" '.[] | .k as $k | .v | split("\n")[]
+    yq -o=json '[.. | select(tag == "!!str") | {"k": (path | join(".")), "v": .}]' "$f" \
+      | jq -r --arg src "$y" '.[] | .k as $k | .v | split("\n")[]
         | select(length >= 16) | select(test("^https?://") | not)
-        | "\($src):\($k)\t\(.)"' >> "$out"
+        | "\($src):\($k)\t\(.)"' >>"$out"
   done
 }

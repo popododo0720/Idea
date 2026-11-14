@@ -1,0 +1,5 @@
+# actionlint settings (scripts/ci.sh passes this file).
+self-hosted-runner:
+  # The machine's own runner (deploy/apps/runner).
+  labels:
+    - idea

@@ -17,7 +17,8 @@ chmod 700 "$RUN" "$RUN/ssh"
 
 # noVNC web root, placed under the URL prefix.
 prefix="${IDEA_PATH_PREFIX:-}"
-prefix="${prefix#/}"; prefix="${prefix%/}"
+prefix="${prefix#/}"
+prefix="${prefix%/}"
 rm -rf "$RUN/web"
 web="$RUN/web${prefix:+/$prefix}"
 mkdir -p "$web"
@@ -25,7 +26,7 @@ for f in /usr/share/novnc/*; do
   ln -s "$f" "$web/$(basename "$f")"
 done
 ws_path="${prefix:+$prefix/}websockify"
-cat > "$web/index.html" <<HTML
+cat >"$web/index.html" <<HTML
 <!doctype html>
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=1&resize=remote&path=${ws_path}">
@@ -38,17 +39,17 @@ HTML
 umask 077
 {
   for v in DEEPSEEK_API_KEY CLAUDE_CODE_OAUTH_TOKEN DSH_TELEMETRY_MODE DISPLAY \
-           $(compgen -v | grep -E '^(FORGEJO_|IDEA_)' || true); do
+    $(compgen -v | grep -E '^(FORGEJO_|IDEA_)' || true); do
     if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
   done
   printf 'export PATH=%q\n' "$PATH"
-} > "$RUN/env"
+} >"$RUN/env"
 umask 022
 
 # Optional Claude Code subagent: installed now, from the npm registry, only
 # when this pod was given a token. A failure leaves the pod working without it.
 if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
-  timeout 180 /usr/local/bin/idea-claude-subagent > "$RUN/log/claude-subagent.log" 2>&1 \
+  timeout 180 /usr/local/bin/idea-claude-subagent >"$RUN/log/claude-subagent.log" 2>&1 \
     || echo "idea-entrypoint: Claude Code subagent not installed (see $RUN/log/claude-subagent.log)" >&2
 fi
 

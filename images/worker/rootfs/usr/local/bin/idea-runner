@@ -5,7 +5,10 @@
 set -euo pipefail
 : "${FORGEJO_INSTANCE:?}" "${RUNNER_NAME:=idea-runner}"
 token_file=/etc/idea/runner/token
-until [ -s "$token_file" ]; do echo "waiting for the registration token"; sleep 5; done
+until [ -s "$token_file" ]; do
+  echo "waiting for the registration token"
+  sleep 5
+done
 mkdir -p ~/runner && cd ~/runner
 forgejo-runner register --no-interactive \
   --instance "$FORGEJO_INSTANCE" \

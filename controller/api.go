@@ -44,6 +44,9 @@ type device struct {
 
 var deviceID = regexp.MustCompile(`^[0-9a-f]{12}$`)
 
+// authFailDelay slows down a caller whose token is refused (tests set it to 0).
+var authFailDelay = 200 * time.Millisecond
+
 func hashSecret(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
@@ -548,7 +551,7 @@ func (c *Controller) apiHandler() http.Handler {
 	mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := c.authDevice(r)
 		if !ok {
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(authFailDelay)
 			writeError(w, 401, "not paired, or the pairing was revoked")
 			return
 		}

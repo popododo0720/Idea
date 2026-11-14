@@ -1,0 +1,5 @@
+# hadolint settings (scripts/ci.sh runs it on every Dockerfile).
+ignored:
+  # Base images are pinned to dated tags (versions.env); apt packages follow
+  # that release's security updates rather than exact versions.
+  - DL3008

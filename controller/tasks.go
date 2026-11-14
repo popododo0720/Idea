@@ -438,6 +438,11 @@ func (c *Controller) gate(ctx context.Context, t taskView) error {
 		c.cleanup(ctx, t)
 		return c.setPhase(ctx, t, phaseDone, fmt.Sprintf("pull request #%d merged", pr.Number), nil)
 	}
+	// Closed by hand: Forgejo refuses to merge it, so waiting would only
+	// keep the task (and its slot) in the gate.
+	if pr.State == "closed" {
+		return c.fail(ctx, t, fmt.Sprintf("pull request #%d was closed without merging", pr.Number))
+	}
 	sha := pr.Head.SHA
 
 	// Tasks run side by side: another task's pull request may have been

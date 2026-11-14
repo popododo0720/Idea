@@ -59,6 +59,7 @@ async function savePairing(p) {
 
 /** https://host[:port] only; the API lives under /api/v1 on it. */
 function normalizeUrl(raw) {
+  if (typeof raw !== 'string') return undefined
   let u
   try { u = new URL(String(raw).trim().includes('://') ? String(raw).trim() : 'https://' + String(raw).trim()) } catch { return undefined }
   if (u.protocol !== 'https:' || u.username || u.password) return undefined
@@ -150,7 +151,7 @@ const FORWARD = [
   ['PUT', /^\/keys$/],
   ['GET', /^\/devices$/],
   ['GET', /^\/vms$/],
-  ['GET', /^\/git\/(?!.*\.\.)[A-Za-z0-9_.\/-]{1,300}$/],
+  ['GET', /^\/git\/(?!.*\.\.)[A-Za-z0-9_./-]{1,300}$/],
   ['POST', /^\/git\/repos\/[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}\/pulls\/\d{1,9}\/merge$/],
   ['DELETE', /^\/devices\/[0-9a-f]{12}$/],
 ]

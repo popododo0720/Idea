@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -41,7 +42,8 @@ type apiError struct {
 func (e *apiError) Error() string { return fmt.Sprintf("forgejo: HTTP %d: %s", e.Status, e.Body) }
 
 func isStatus(err error, code int) bool {
-	if e, ok := err.(*apiError); ok {
+	var e *apiError
+	if errors.As(err, &e) {
 		return e.Status == code
 	}
 	return false

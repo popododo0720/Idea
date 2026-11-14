@@ -1,0 +1,21 @@
+{
+  // Type check for the dsh plugins written in TypeScript (plugins/*/src).
+  // Node runs them by stripping the types, so only erasable syntax is allowed.
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "noEmit": true,
+    "strict": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["plugins/*/src/**/*.ts"]
+}

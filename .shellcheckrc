@@ -1,0 +1,8 @@
+# shellcheck settings for every shell script (scripts/ci.sh runs it).
+# Follow `source` to files given as paths relative to the script.
+external-sources=true
+source-path=SCRIPTDIR
+# Optional checks worth having.
+enable=avoid-nullary-conditions,check-unassigned-uppercase,deprecate-which
+# `sed 's/^/  /'` indents every line of a multi-line value; keep it.
+disable=SC2001

@@ -18,8 +18,10 @@ ns=idea-system
 # Sent from the agent dsh pod (it has node and reaches Forgejo).
 
 {
-  kubectl -n "$ns" get secret idea-forgejo-admin -o jsonpath='{.data.username}' | base64 -d; echo
-  kubectl -n "$ns" get secret idea-forgejo-admin -o jsonpath='{.data.password}' | base64 -d; echo
+  kubectl -n "$ns" get secret idea-forgejo-admin -o jsonpath='{.data.username}' | base64 -d
+  echo
+  kubectl -n "$ns" get secret idea-forgejo-admin -o jsonpath='{.data.password}' | base64 -d
+  echo
   printf '%s\n' "$method" "$path"
   printf '%s' "$body"
 } | kubectl -n idea-work exec -i deploy/idea-dsh -- node --input-type=module -e '

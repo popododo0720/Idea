@@ -9,10 +9,12 @@ set -eu
 log() { echo "idea-setup: $*"; }
 T=/bin/talosctl
 W=/work
-. /etc/idea/setup.env   # CLUSTER_NAME KUBERNETES_VERSION INSTALLER_IMAGE
+# shellcheck source=/dev/null # written by the ISO build
+. /etc/idea/setup.env
+: "${CLUSTER_NAME:?}" "${KUBERNETES_VERSION:?}" "${INSTALLER_IMAGE:?}"
 
-MODE="${1:-generate}"   # generate | embedded (see idea-setup-embedded.yaml)
-arg() { tr ' ' '\n' < /proc/cmdline | sed -n "s/^$1=//p" | tail -n 1; }
+MODE="${1:-generate}" # generate | embedded (see idea-setup-embedded.yaml)
+arg() { tr ' ' '\n' </proc/cmdline | sed -n "s/^$1=//p" | tail -n 1; }
 
 # On a configured machine the embedded-mode service is started with this
 # marker (see the end of this script) so that it finishes instead of waiting
@@ -28,18 +30,25 @@ if [ "$MODE" = generate ] && [ "$(arg idea.secrets)" = embedded ]; then
 fi
 
 # ---- 1. only act in maintenance mode
-tls=0; n=0
+tls=0
+n=0
 while :; do
   if out="$($T get machinestatus --insecure -n 127.0.0.1 -o yaml 2>&1)"; then
     case "$out" in *"stage: maintenance"*) break ;; esac
   fi
   case "$out" in
-    *certificate*|*tls:*) tls=$((tls + 1)) ;;
+    *certificate* | *tls:*) tls=$((tls + 1)) ;;
   esac
-  [ "$tls" -lt 3 ] || { log "machine already has a configuration; nothing to do"; exit 0; }
+  [ "$tls" -lt 3 ] || {
+    log "machine already has a configuration; nothing to do"
+    exit 0
+  }
   n=$((n + 1))
   [ $((n % 12)) -ne 1 ] || log "waiting for the maintenance API: $(echo "$out" | tail -n 1)"
-  [ "$n" -lt 240 ] || { log "maintenance API did not answer"; exit 1; }
+  [ "$n" -lt 240 ] || {
+    log "maintenance API did not answer"
+    exit 1
+  }
   sleep 5
 done
 log "blank machine in maintenance mode: configuring it"
@@ -47,12 +56,14 @@ log "blank machine in maintenance mode: configuring it"
 # ---- 2. address
 # From DHCP, or set by hand on this console (Talos keeps that across the
 # install by itself).
-ip=""; n=0
+ip=""
+n=0
 while :; do
   ip="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p')"
   [ -z "$ip" ] || break
   [ $((n % 30)) -ne 0 ] || log "no IPv4 address yet. No DHCP here? Press F3 on this console, set a static address, Save."
-  n=$((n + 1)); sleep 2
+  n=$((n + 1))
+  sleep 2
 done
 
 # ---- 3. disks
@@ -64,29 +75,47 @@ used() {
     | sed -n 's/^ *name: *//p' | tr -d '"' | head -n 1)"
   [ -n "$sig" ]
 }
-: > "$W/disks"
+: >"$W/disks"
 for d in /sys/block/*; do
   name="${d##*/}"
-  case "$name" in loop*|ram*|zram*|sr*|dm-*|md*|nbd*|fd*) continue ;; esac
+  case "$name" in loop* | ram* | zram* | sr* | dm-* | md* | nbd* | fd*) continue ;; esac
   [ "$(cat "$d/removable" 2>/dev/null || echo 1)" = 0 ] || continue
   [ "$(cat "$d/ro" 2>/dev/null || echo 1)" = 0 ] || continue
-  sectors="$(cat "$d/size")"   # 512-byte sectors
+  sectors="$(cat "$d/size")" # 512-byte sectors
   [ "$sectors" -ge 33554432 ] || continue
-  u=0; ! used "$name" || u=1
+  u=0
+  ! used "$name" || u=1
   model="$(cat "$d/device/model" 2>/dev/null | tr -s ' ' | sed 's/^ //; s/ $//' || true)"
-  echo "/dev/$name $((sectors / 2097152)) $u $model" >> "$W/disks"
+  echo "/dev/$name $((sectors / 2097152)) $u $model" >>"$W/disks"
 done
 count="$(grep -c . "$W/disks" || true)"
-[ "$count" -ge 1 ] || { log "no disk of 16GB or more found"; sleep 30; exit 1; }
-is_used() { while read -r dev _ u _; do [ "$dev" != "$1" ] || { [ "$u" = 1 ]; return; }; done < "$W/disks"; return 1; }
-listed()  { while read -r dev _; do [ "$dev" != "$1" ] || return 0; done < "$W/disks"; return 1; }
+[ "$count" -ge 1 ] || {
+  log "no disk of 16GB or more found"
+  sleep 30
+  exit 1
+}
+is_used() {
+  while read -r dev _ u _; do [ "$dev" != "$1" ] || {
+    [ "$u" = 1 ]
+    return
+  }; done <"$W/disks"
+  return 1
+}
+listed() {
+  while read -r dev _; do [ "$dev" != "$1" ] || return 0; done <"$W/disks"
+  return 1
+}
 
 sysdisk="$(arg idea.disk)"
 datadisk=""
 host="$(arg idea.host)"
 if [ -n "$sysdisk" ]; then
   # Chosen on the kernel command line: no questions.
-  listed "$sysdisk" || { log "idea.disk=$sysdisk is not a usable disk"; sleep 30; exit 1; }
+  listed "$sysdisk" || {
+    log "idea.disk=$sysdisk is not a usable disk"
+    sleep 30
+    exit 1
+  }
 elif [ "$count" = 1 ] && ! is_used "$(sed -n 's/ .*//p;q' "$W/disks")"; then
   # One empty disk: nothing to lose and nothing to choose.
   sysdisk="$(sed -n 's/ .*//p;q' "$W/disks")"
@@ -103,31 +132,46 @@ else
       log "install page   http://$ip:8080/"
       log "=============================================================="
     fi
-    n=$((n + 1)); sleep 2
+    n=$((n + 1))
+    sleep 2
   done
-  sleep 2   # let the page answer the browser
+  sleep 2 # let the page answer the browser
   kill "$hp" 2>/dev/null || true
   sysdisk="$(sed -n 1p "$W/choice")"
   datadisk="$(sed -n 2p "$W/choice")"
   host="$(sed -n 3p "$W/choice")"
-  listed "$sysdisk" || { log "invalid choice"; exit 1; }
+  listed "$sysdisk" || {
+    log "invalid choice"
+    exit 1
+  }
 fi
 # A data disk that is not empty has to be wiped before Talos will use it.
 if [ -n "$datadisk" ] && is_used "$datadisk"; then
   log "wiping data disk $datadisk"
   $T wipe disk "${datadisk#/dev/}" --insecure -n 127.0.0.1 \
-    || { log "could not wipe $datadisk"; sleep 30; exit 1; }
+    || {
+      log "could not wipe $datadisk"
+      sleep 30
+      exit 1
+    }
 fi
 # The name this machine answers to (install page or kernel arg idea.host).
 case "$host" in
-  *[!a-z0-9.-]*|.*|*.|*..*) log "ignoring invalid name '$host'"; host="" ;;
+  *[!a-z0-9.-]* | .* | *. | *..*)
+    log "ignoring invalid name '$host'"
+    host=""
+    ;;
 esac
 host="${host:-idea.internal}"
 log "address $ip, system disk $sysdisk, data disk ${datadisk:-none (system disk)}, name $host"
 
 # ---- 4. secrets
 if [ "$MODE" = embedded ]; then
-  [ -s /etc/idea/secrets.yaml ] || { log "embedded secrets are not mounted"; sleep 5; exit 1; }
+  [ -s /etc/idea/secrets.yaml ] || {
+    log "embedded secrets are not mounted"
+    sleep 5
+    exit 1
+  }
   cp /etc/idea/secrets.yaml "$W/secrets.yaml"
   log "using the secrets built into this ISO"
 else
@@ -150,7 +194,7 @@ fi
   else
     echo 'volumeType: directory'
   fi
-} > "$W/volume.yaml"
+} >"$W/volume.yaml"
 
 # Name servers the machine already has from DHCP or the console (F3) win
 # over the fallback list a development ISO carries. Talos uses 1.1.1.1 and
@@ -164,7 +208,11 @@ patches=""
 for f in /etc/idea/patches/*.yaml; do
   case "$f" in
     *-fallback-resolvers.yaml)
-      if own_dns; then log "keeping the name servers this machine already has"; continue; fi ;;
+      if own_dns; then
+        log "keeping the name servers this machine already has"
+        continue
+      fi
+      ;;
   esac
   patches="$patches --config-patch-control-plane @$f"
 done
@@ -182,7 +230,7 @@ $T gen config "$CLUSTER_NAME" "https://$ip:6443" \
 
 # Setup code: shown on this machine's console and asked for by the setup page
 # (controller/setup.go). Whoever can read the console owns the machine.
-code="$(tr -dc 'abcdefghjkmnpqrstuvwxyz23456789' < /dev/urandom | head -c 12)"
+code="$(tr -dc 'abcdefghjkmnpqrstuvwxyz23456789' </dev/urandom | head -c 12)"
 code="$(echo "$code" | sed 's/^\(....\)\(....\)\(....\)$/\1-\2-\3/')"
 
 # The installed system needs admin access to its own API once, to bootstrap
@@ -234,7 +282,7 @@ code="$(echo "$code" | sed 's/^\(....\)\(....\)\(....\)$/\1-\2-\3/')"
   echo 'name: idea-setup-embedded'
   echo 'environment:'
   echo '  - IDEA_CONFIGURED=1'
-} >> "$W/controlplane.yaml"
+} >>"$W/controlplane.yaml"
 
 $T validate --config "$W/controlplane.yaml" --mode metal >/dev/null
 log "applying the configuration; Talos installs to $sysdisk and reboots"

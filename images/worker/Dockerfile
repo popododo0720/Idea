@@ -8,6 +8,9 @@
 ARG DEBIAN_TAG
 FROM docker.io/library/debian:${DEBIAN_TAG}
 
+# A failed step inside a pipe (curl | ..., echo | sha256sum) fails the build.
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 ARG NODE_VERSION
 ARG NODE_SHA256
 
@@ -44,8 +47,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends bubblewrap \
  && rm -rf /var/lib/apt/lists/*
 COPY images/worker/dsh/package.json images/worker/dsh/package-lock.json /opt/dsh/
-RUN cd /opt/dsh \
- && npm ci --no-audit --no-fund \
+RUN npm ci --prefix /opt/dsh --no-audit --no-fund \
  && npm cache clean --force \
  && ln -s /opt/dsh/node_modules/.bin/dsh /usr/local/bin/dsh \
  && ln -s /opt/dsh/node_modules/.bin/pnpm /usr/local/bin/pnpm \
@@ -62,7 +64,7 @@ RUN curl -fsSL -o /usr/local/bin/forgejo-runner \
 # The X server runs unprivileged and cannot create its socket directory.
 RUN rm -f /etc/ssh/ssh_host_* \
  && mkdir -p /run/sshd \
- && mkdir -p -m 1777 /tmp/.X11-unix \
+ && install -d -m 1777 /tmp/.X11-unix \
  && useradd --create-home --uid 1000 --shell /bin/bash idea
 
 COPY images/worker/rootfs/ /

@@ -12,7 +12,7 @@
 need helm flux yq
 
 CLUSTER="${1:-dev}"
-case "$CLUSTER" in dev|public) ;; *) die "usage: $0 [dev|public]" ;; esac
+case "$CLUSTER" in dev | public) ;; *) die "usage: $0 [dev|public]" ;; esac
 
 OUT="$REPO_ROOT/_out/talos"
 mkdir -p "$OUT"
@@ -22,7 +22,7 @@ D="$REPO_ROOT/deploy"
 flux install --export \
   --version "$FLUX_VERSION" \
   --components source-controller,kustomize-controller,helm-controller \
-  > "$D/bootstrap/flux/gotk-components.yaml" 2>/dev/null
+  >"$D/bootstrap/flux/gotk-components.yaml" 2>/dev/null
 
 # ---- Cilium, rendered from the same values Flux will use afterwards
 hr="$D/infra/controllers/cilium/helmrelease.yaml"
@@ -30,12 +30,12 @@ chart_version="$(yq '.spec.chart.spec.version' "$hr")"
 [ "$chart_version" = "$CILIUM_VERSION" ] \
   || die "Cilium version differs: HelmRelease $chart_version, versions.env $CILIUM_VERSION"
 repo="$(yq '.spec.url' "$D/infra/controllers/cilium/helmrepository.yaml")"
-yq '.spec.values' "$hr" > "$OUT/cilium-values.yaml"
+yq '.spec.values' "$hr" >"$OUT/cilium-values.yaml"
 helm template "$(yq '.spec.releaseName' "$hr")" cilium \
   --repo "$repo" --version "$chart_version" \
   --namespace "$(yq '.metadata.namespace' "$hr")" \
   --kube-version "${KUBERNETES_VERSION#v}" \
-  -f "$OUT/cilium-values.yaml" > "$OUT/cilium.yaml"
+  -f "$OUT/cilium-values.yaml" >"$OUT/cilium.yaml"
 
 # The bootstrap manifest ends up in the machine config; it must not carry keys.
 if [ -n "$(yq -N 'select(.kind == "Secret" and ((.data // {}) | length > 0 or (.stringData // {}) | length > 0)) | .metadata.name' "$OUT/cilium.yaml")" ]; then
@@ -45,8 +45,9 @@ fi
 # ---- compose the patch
 patch="$OUT/bootstrap.yaml"
 [ "$CLUSTER" = dev ] || patch="$OUT/bootstrap-$CLUSTER.yaml"
-: > "$patch"
+: >"$patch"
 add() { # add <name> <file>
+  # shellcheck disable=SC2094 # only tests the size before appending
   {
     [ -s "$patch" ] && echo '---'
     NAME="$1" FILE="$2" yq -n '
@@ -54,17 +55,17 @@ add() { # add <name> <file>
       .kind = "KubeInlineManifestConfig" |
       .name = strenv(NAME) |
       .manifest = load_str(strenv(FILE))'
-  } >> "$patch"
+  } >>"$patch"
 }
 add idea-cilium "$OUT/cilium.yaml"
-add idea-flux   "$D/bootstrap/flux/gotk-components.yaml"
+add idea-flux "$D/bootstrap/flux/gotk-components.yaml"
 root="$D/clusters/$CLUSTER/root.yaml"
 if [ "$CLUSTER" = dev ]; then
   # The committed dev root names the default registry; point it at LOCAL_REPO.
   URL="oci://$LOCAL_REPO/idea-deploy" yq \
-    '(select(.kind == "OCIRepository") | .spec.url) = strenv(URL)' "$root" > "$OUT/root-dev.yaml"
+    '(select(.kind == "OCIRepository") | .spec.url) = strenv(URL)' "$root" >"$OUT/root-dev.yaml"
   root="$OUT/root-dev.yaml"
 fi
-add idea-root   "$root"
+add idea-root "$root"
 
 log "wrote $patch ($(du -h "$patch" | cut -f1))"
