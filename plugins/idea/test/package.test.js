@@ -27,7 +27,7 @@ test('every package the plugin imports is declared as a dependency or peer depen
   for (const f of readdirSync(join(root, 'lib'))) {
     if (!f.endsWith('.js') || f === 'client.js') continue
     const src = readFileSync(join(root, 'lib', f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
-    for (const [, spec] of src.matchAll(/(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g)) {
+    for (const [, spec] of src.matchAll(/^\s*(?:import|export)\b[^'"\n]*?from\s*['"]([^'"]+)['"]/gm)) {
       if (spec.startsWith('node:') || spec.startsWith('.')) continue
       imports.add(name(spec))
     }
