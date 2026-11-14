@@ -44,6 +44,16 @@ built here: it is built by agents on worker VMs, many at once.
   pull request fails its tests, comment on the issue or open a follow-up
   issue rather than fixing it here.
 
+## Web search
+
+Search the web only with dsh's `web_search` tool. Its provider is DeepSeek
+search, whatever model you run on, so every search goes to DeepSeek. Do not
+search the web any other way (no browser, no other search tool). Searching
+code and files is not web search: use the file tools, or pstack's `how
+explorer` for a wide look at a codebase. If `web_search` says it is not
+available (no DeepSeek credential on this machine), say so in your answer
+instead of searching another way.
+
 ## pstack reasoning effort
 
 For the panel roles `arena runners`, `architect runners` and `interrogate

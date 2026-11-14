@@ -53,6 +53,7 @@ type Config struct {
 	WorkNS        string
 	WorkerImage   string
 	GateMode      string // "actions": wait for a Forgejo Actions status; "controller": run the tests ourselves
+	AgentPreset   string // dsh agent preset of task sessions ("" = dsh's default); pstack's Poteto mode by default
 	MaxActive     int    // tasks working at once on the whole machine; 0: no limit but the VMs
 	WorkerSlots   int    // tasks working at once on one worker VM
 	MaxWorkers    int    // worker VMs at most (the nodes' room is the other limit)
@@ -64,6 +65,16 @@ func env(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// agentPreset is the dsh agent preset of task sessions: AGENT_PRESET, or
+// pstack's Poteto mode (every image ships dsh-pstack). Set AGENT_PRESET to an
+// empty value to use dsh's own default preset.
+func agentPreset() string {
+	if v, ok := os.LookupEnv("AGENT_PRESET"); ok {
+		return strings.TrimSpace(v)
+	}
+	return "poteto-mode"
 }
 
 func mustEnv(key string) string {
@@ -108,6 +119,7 @@ func loadConfig() Config {
 		WorkNS:        env("WORK_NAMESPACE", "idea-work"),
 		WorkerImage:   mustEnv("WORKER_IMAGE"),
 		GateMode:      env("GATE_MODE", "actions"),
+		AgentPreset:   agentPreset(),
 		MaxActive:     max,
 		WorkerSlots:   slots,
 		MaxWorkers:    workers,
@@ -410,10 +422,8 @@ func (c *Controller) reconcileForgejo(ctx context.Context) error {
 			c.setProjectStatus(ctx, p, false, err.Error())
 			continue
 		}
-		// Every project is a workspace in the agent dsh, ready before its first task.
-		if _, err := c.dsh.ensureWorkspace(ctx, p.Name); err != nil && !errors.Is(err, errDshNotReady) {
-			slog.Warn("project workspace", "project", p.Name, "err", err.Error())
-		}
+		// The project's dsh workspace is made when its first task starts
+		// (startSession), not here: a workspace the owner removed stays removed.
 		c.setProjectStatus(ctx, p, true, "")
 	}
 	return nil

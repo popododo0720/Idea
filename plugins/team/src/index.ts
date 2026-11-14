@@ -51,6 +51,9 @@ const CONTROLLER = (process.env.IDEA_CONTROLLER || 'http://idea-controller.idea-
 const WORK_NS = process.env.IDEA_WORK_NS || 'idea-work'
 // This VM's name: `idea-dsh` (the agent dsh) or `idea-worker-<n>`.
 const SELF = process.env.IDEA_VM || 'idea-dsh'
+// Agent preset of teammates' sessions: pstack's Poteto mode unless
+// IDEA_AGENT_PRESET says otherwise (empty: dsh's own default).
+const PRESET = (process.env.IDEA_AGENT_PRESET ?? 'poteto-mode').trim()
 const WORK_ROOT = '/home/idea/state/team'
 
 const VM = /^(idea-dsh|idea-worker-\d{1,3})$/
@@ -635,7 +638,7 @@ export function apply(ctx: Context) {
     const dir = join(WORK_ROOT, team, name)
     await mkdir(dir, { recursive: true })
     const ws = await ctx.workspaceController.create({ path: dir })
-    const created = await ctx.sessionController.create({ workspaceId: ws.workspace.workspaceId })
+    const created = await ctx.sessionController.create({ workspaceId: ws.workspace.workspaceId, ...(PRESET ? { agentPreset: PRESET } : {}) })
     const session: string = created.sessionId
     try { await ctx.sessionController.rename({ sessionId: session as SessionId, title: `${name} · team ${team}` }) } catch { /* title only */ }
     const roster = (v.roster as Member[]).filter(m => NAME.test(m?.name) && VM.test(m?.vm))
