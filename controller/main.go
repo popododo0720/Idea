@@ -53,6 +53,7 @@ type Config struct {
 	WorkNS        string
 	WorkerImage   string
 	GateMode      string // "actions": wait for a Forgejo Actions status; "controller": run the tests ourselves
+	Review        bool   // an agent reviews the pull request before it is merged (REVIEW=off turns it off)
 	AgentPreset   string // dsh agent preset of task sessions ("" = dsh's default); pstack's Poteto mode by default
 	MaxActive     int    // tasks working at once on the whole machine; 0: no limit but the VMs
 	WorkerSlots   int    // tasks working at once on one worker VM
@@ -119,6 +120,7 @@ func loadConfig() Config {
 		WorkNS:        env("WORK_NAMESPACE", "idea-work"),
 		WorkerImage:   mustEnv("WORKER_IMAGE"),
 		GateMode:      env("GATE_MODE", "actions"),
+		Review:        env("REVIEW", "on") != "off",
 		AgentPreset:   agentPreset(),
 		MaxActive:     max,
 		WorkerSlots:   slots,
@@ -136,6 +138,7 @@ type Controller struct {
 	dsh   *dshClient
 	// joinMu serializes join code issue and use (join.go).
 	joinMu sync.Mutex
+	agent  func(vm string) agentAPI // replaces the dsh clients in tests
 	// Worker VMs (workers.go); tasks run there.
 	workers *workerPool
 	// Repository copies of projects (projects.go): "" done, else what to show.
