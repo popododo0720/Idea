@@ -150,6 +150,8 @@ const FORWARD = [
   ['PUT', /^\/keys$/],
   ['GET', /^\/devices$/],
   ['GET', /^\/vms$/],
+  ['GET', /^\/git\/(?!.*\.\.)[A-Za-z0-9_.\/-]{1,300}$/],
+  ['POST', /^\/git\/repos\/[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}\/pulls\/\d{1,9}\/merge$/],
   ['DELETE', /^\/devices\/[0-9a-f]{12}$/],
 ]
 
