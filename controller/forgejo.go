@@ -99,8 +99,9 @@ func (f *Forgejo) EnsureOrg(ctx context.Context, org string) error {
 }
 
 type Repo struct {
-	FullName string `json:"full_name"`
-	Empty    bool   `json:"empty"`
+	FullName      string `json:"full_name"`
+	Empty         bool   `json:"empty"`
+	DefaultBranch string `json:"default_branch"`
 }
 
 // EnsureRepo returns the repository, creating it when missing.
@@ -125,7 +126,8 @@ func (f *Forgejo) EnsureRepo(ctx context.Context, org, name string) (*Repo, erro
 
 // ImportRepo copies a public Git repository into a new repository of the
 // organisation (code and history; not a mirror). It does nothing when the
-// repository exists already.
+// repository exists already. Tasks work against main, so a repository whose
+// default branch has another name gets a main branch made from it.
 func (f *Forgejo) ImportRepo(ctx context.Context, org, name, from, description string) (bool, error) {
 	err := f.do(ctx, "GET", "/repos/"+org+"/"+name, nil, nil)
 	if err == nil {
@@ -136,13 +138,28 @@ func (f *Forgejo) ImportRepo(ctx context.Context, org, name, from, description s
 	}
 	// Copying takes a while for a large repository.
 	slow := *f
-	slow.http = &http.Client{Timeout: 10 * time.Minute, Transport: f.http.Transport}
+	slow.http = &http.Client{Timeout: 3 * time.Minute, Transport: f.http.Transport}
 	err = slow.do(ctx, "POST", "/repos/migrate", map[string]any{
 		"clone_addr": from, "repo_owner": org, "repo_name": name, "service": "git",
 		"mirror": false, "private": false, "description": description,
 	}, nil)
 	if err != nil {
 		return false, err
+	}
+	var r Repo
+	if err := f.do(ctx, "GET", "/repos/"+org+"/"+name, nil, &r); err != nil {
+		return true, err
+	}
+	if !r.Empty && r.DefaultBranch != "" && r.DefaultBranch != "main" {
+		err := f.do(ctx, "POST", "/repos/"+org+"/"+name+"/branches", map[string]any{
+			"new_branch_name": "main", "old_branch_name": r.DefaultBranch,
+		}, nil)
+		if err != nil && !isStatus(err, 409) {
+			return true, fmt.Errorf("main branch: %w", err)
+		}
+		if err := f.do(ctx, "PATCH", "/repos/"+org+"/"+name, map[string]any{"default_branch": "main"}, nil); err != nil {
+			return true, fmt.Errorf("default branch: %w", err)
+		}
 	}
 	return true, nil
 }

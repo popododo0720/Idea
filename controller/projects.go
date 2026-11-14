@@ -130,6 +130,10 @@ func (c *Controller) reconcileProject(ctx context.Context, p project) error {
 	if err != nil {
 		return fmt.Errorf("repo: %w", err)
 	}
+	if p.Import != "" && repo.Empty {
+		// A copy that was cut off leaves an empty repository behind.
+		return fmt.Errorf("the copy from %s did not finish: delete the repository %s/%s in Forgejo and it is copied again", p.Import, org, name)
+	}
 	if repo.Empty && p.Seed != "" {
 		dir, err := c.seedDir(p.Seed)
 		if err != nil {

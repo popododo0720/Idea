@@ -33,7 +33,7 @@ const FORGEJO_TOKEN_FILE = '/etc/idea/forgejo/token'
 const PROJECT = /^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$/
 const REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/
 const IMPORT = /^https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?\/[A-Za-z0-9._~/-]+$/
-const MAX_BODY = 1024 * 1024
+const MAX_BODY = 8 * 1024 * 1024
 
 const TEXT_OUTPUT = {
   schema: {
@@ -70,7 +70,11 @@ async function controller(method: string, path: string, payload?: unknown, signa
     }, res => {
       const chunks: Buffer[] = []
       let size = 0
-      res.on('data', (c: Buffer) => { size += c.length; if (size <= MAX_BODY) chunks.push(c) })
+      res.on('data', (c: Buffer) => {
+        size += c.length
+        if (size > MAX_BODY) { req.destroy(new Error('the controller answered too much')); return }
+        chunks.push(c)
+      })
       res.on('end', () => {
         let value: any = null
         try { value = JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null') } catch { /* not JSON */ }
@@ -102,6 +106,16 @@ async function forgejo(method: string, path: string, body?: unknown, signal?: Ab
   return text ? JSON.parse(text) : null
 }
 
+/** At most n UTF-8 bytes, cut at a character boundary. */
+function clipBytes(text: string, n: number): string {
+  let out = ''
+  for (const ch of text) {
+    if (Buffer.byteLength(out + ch) > n) break
+    out += ch
+  }
+  return out
+}
+
 function errorOf(r: { status: number, value: any }): string {
   return String(r.value?.error ?? `HTTP ${r.status}`)
 }
@@ -117,8 +131,8 @@ export function apply(ctx: any) {
       'The repository is ready within about a minute; check with idea_status.',
     parameters: {
       name: { type: 'string', required: true, description: 'Project and repository name: lowercase letters, digits, dashes' },
-      description: { type: 'string', required: false, description: 'One line about the project' },
-      import_url: { type: 'string', required: false, description: 'Public https Git URL to copy the code from (optional)' },
+      description: { type: 'string', description: 'One line about the project' },
+      import_url: { type: 'string', description: 'Public https Git URL to copy the code from (optional)' },
     },
     output: TEXT_OUTPUT,
     async execute(args: { name: string, description?: string, import_url?: string }, exec: any) {
@@ -127,12 +141,12 @@ export function apply(ctx: any) {
       const from = String(args.import_url ?? '').trim()
       if (from && !IMPORT.test(from)) throw new Error('import_url: a public https Git URL without credentials')
       const r = await controller('POST', '/agent/projects', {
-        name, description: String(args.description ?? '').slice(0, 500), import: from,
+        name, description: clipBytes(String(args.description ?? ''), 500), import: from,
       }, exec?.signal)
       if (r.status !== 201) throw new Error(`could not create project ${name}: ${errorOf(r)}`)
       const p = r.value
       return {
-        text: `Project ${p.name} created: repository ${p.repo}${from ? `, copied from ${from}` : ''}. ` +
+        text: `Project ${p.name} created: repository ${p.repo}${from ? `, to be copied from ${from} (unless a repository of that name exists already)` : ''}. ` +
           `It is being set up; idea_status shows when it is ready. Open issues in ${p.repo} with forgejo_issue_create.`,
       }
     },
@@ -195,7 +209,7 @@ export function apply(ctx: any) {
     description: 'List issues of a project repository (open by default).',
     parameters: {
       repo: { type: 'string', required: true, description: 'Repository as owner/name' },
-      state: { type: 'string', required: false, description: '"open" (default), "closed" or "all"' },
+      state: { type: 'string', description: '"open" (default), "closed" or "all"' },
     },
     output: TEXT_OUTPUT,
     async execute(args: { repo: string, state?: string }, exec: any) {

@@ -14,6 +14,10 @@ built here: it is built by agents on worker VMs, many at once.
 - When the owner asks for work on code that is not a project yet, create the
   project first (copying the repository when there is one), wait until
   `idea_status` shows it ready, then plan the work.
+- A pull request is merged only when the repository's tests pass, run by
+  `.forgejo/workflows/` on the machine's runner (`runs-on: idea`). A copied
+  repository often has none: make adding that workflow (and the tests it
+  runs) the first issue, and plan the rest after it is merged.
 
 ## Running work in parallel
 
