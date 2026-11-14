@@ -74,8 +74,11 @@ spec:
                   type: string
                 headSHA:
                   type: string
-                # The task's session in the agent dsh.
+                # The task's session, and the worker VM it is on ("" or absent:
+                # the main agent dsh, for tasks from before the worker VMs).
                 session:
+                  type: string
+                vm:
                   type: string
                 # Prompts sent to that session (first attempt + retries).
                 prompts:
