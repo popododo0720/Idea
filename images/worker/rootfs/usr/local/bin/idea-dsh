@@ -8,6 +8,7 @@
 #   POD_IP            address to bind (downward API)
 #   DSH_PORT          listen port, default 4443
 #   DSH_TRUSTED_HOST  the authority clients use (Host header), e.g. the Service name
+#   IDEA_WEB_SEARCH_PROVIDER  web_search provider id, default deepseek-official
 #   FORGEJO_API, FORGEJO_TOKEN, FORGEJO_USER   the in-cluster Forgejo
 # The launch URL dsh prints (with its one-time-per-process token) is how the
 # idea controller signs in; it goes to the pod log only.
@@ -17,6 +18,12 @@ set -euo pipefail
 STATE="${IDEA_STATE:-/home/idea/state}"
 export DSH_HOME="$STATE/dsh"
 mkdir -p "$DSH_HOME" "$STATE/projects"
+
+# Agents search the web through DeepSeek only. Without a pinned provider dsh
+# fails web_search with WEB_PROVIDER_AMBIGUOUS once a second provider (for
+# example Codex search after a sign-in) becomes usable. Fetch stays on dsh's
+# default: deepseek-fetch-api needs a DEEPSEEK_API_KEY the machine does not have.
+export DSH_WEB_SEARCH_PROVIDER="${IDEA_WEB_SEARCH_PROVIDER:-deepseek-official}"
 
 # Git: identity, and credentials for Forgejo read at use time from the
 # mounted Secret (dsh does not pass *TOKEN* variables on to the shells its

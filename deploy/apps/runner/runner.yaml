@@ -31,7 +31,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: runner
-          image: ghcr.io/popododo0720/idea-worker:0.15.5
+          image: ghcr.io/popododo0720/idea-worker:0.15.6
           command: ["/usr/local/bin/idea-runner"]
           env:
             - name: FORGEJO_INSTANCE

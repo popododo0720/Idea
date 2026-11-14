@@ -151,6 +151,7 @@ run_shell() {
   shellcheck "${files[@]}"
   shfmt -d "${files[@]}"
   echo "${#files[@]} scripts"
+  scripts/test-idea-dsh.sh
 }
 
 run_workflows() {
