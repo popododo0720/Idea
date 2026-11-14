@@ -582,10 +582,17 @@ export function apply(ctx: any) {
       if (req.method !== 'GET') { send(res, 405, { error: 'GET only' }); return }
       const rejection = ctx.connection.requestRejection(req)
       if (rejection !== undefined && !(await hasTeamToken(req))) { res.statusCode = rejection; res.end(); return }
-      const team = new URL(req.url || '/', 'http://x').searchParams.get('team')
+      const q = new URL(req.url || '/', 'http://x').searchParams
+      const team = q.get('team')
       if (team !== null && !TEAM.test(team)) { send(res, 400, { error: 'invalid team' }); return }
+      // The newest `limit` messages, each cut to `max` characters (the panel
+      // asks for a short view; peers get everything by default).
+      const limit = Math.min(2000, Math.max(1, Number(q.get('limit')) || 2000))
+      const max = Math.min(MAX_TEXT, Math.max(100, Number(q.get('max')) || MAX_TEXT))
       await load()
-      send(res, 200, { vm: SELF, messages: await readLog(team), rosters: state.rosters })
+      const messages = (await readLog(team)).slice(-limit)
+        .map(m => m.text.length > max ? { ...m, text: m.text.slice(0, max), clipped: true } : m)
+      send(res, 200, { vm: SELF, messages, rosters: state.rosters })
     },
   }), 'idea: /idea-team/log')
 }

@@ -229,17 +229,20 @@ export function createViewProxy({ upstream, log = () => {} }) {
     async json(method, path, value) {
       for (let attempt = 0; ; attempt++) {
         if (!target || !jar) await login()
-        const body = JSON.stringify(value)
-        const req = await send(method, new URL(path, target.url), {
-          host: target.authority, origin: target.origin, cookie: jar,
-          'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)),
-        })
+        // No value (a GET): no body.
+        const body = value === undefined ? '' : JSON.stringify(value)
+        const headers = { host: target.authority, origin: target.origin, cookie: jar }
+        if (value !== undefined) {
+          headers['content-type'] = 'application/json'
+          headers['content-length'] = String(Buffer.byteLength(body))
+        }
+        const req = await send(method, new URL(path, target.url), headers)
         const out = await new Promise((resolve, reject) => {
           req.on('response', r => {
             absorbCookies(r.headers['set-cookie'])
             let d = ''
             r.setEncoding('utf8')
-            r.on('data', c => { if (d.length < 1 << 20) d += c })
+            r.on('data', c => { if (d.length < 4 << 20) d += c })
             r.on('end', () => resolve({ status: r.statusCode, text: d }))
           })
           req.on('error', reject)

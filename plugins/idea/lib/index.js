@@ -23,6 +23,7 @@ import { createViewProxy } from './view-proxy.js'
 import { pinnedSocket, portOf } from './tls-pin.js'
 import { createModelSync } from './model-sync.js'
 import { createSubscriptionsSync } from './subscriptions-sync.js'
+import { teamView } from './team-view.js'
 
 export const name = 'idea'
 export const inject = ['webServer', 'connection']
@@ -223,6 +224,17 @@ export function apply(ctx) {
     paired: async () => Boolean(process.env.IDEA_DEV_DSH_LOGIN) || (await loadPairing()) !== undefined,
   })
 
+  // Worker VMs that are up, for the Team tab.
+  const workerVms = async () => {
+    if (process.env.IDEA_DEV_DSH_LOGIN) return []
+    const p = await loadPairing()
+    if (!p) return []
+    const r = await call(p.url, 'GET', '/api/v1/vms', { token: p.token, pin: p.cert })
+    if (r.status !== 200) throw new Error(`the machine answered HTTP ${r.status}`)
+    const v = JSON.parse(r.body.toString('utf8') || '{}')
+    return (v.workers || []).filter(w => w && w.ready && typeof w.name === 'string' && w.name && VM.test(w.name)).map(w => w.name)
+  }
+
   const rejected = (req, res) => {
     const rejection = ctx.connection.requestRejection(req)
     if (rejection === undefined) return false
@@ -255,6 +267,14 @@ export function apply(ctx) {
       } catch (e) {
         sendJson(res, 502, { error: `could not reach the machine's dsh: ${e.message}` })
       }
+      return
+    }
+
+    if (sub === '/team' && method === 'GET') {
+      if (!process.env.IDEA_DEV_DSH_LOGIN && !(await loadPairing())) { sendJson(res, 409, { error: 'not paired' }); return }
+      let workers
+      try { workers = await workerVms() } catch (e) { sendJson(res, 502, { error: `Could not reach the machine: ${e.message}`, offline: true }); return }
+      sendJson(res, 200, await teamView({ workers, viewOf }))
       return
     }
 

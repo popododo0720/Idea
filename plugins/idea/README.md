@@ -28,7 +28,17 @@ idea panel (iframe) ──▶ 127.0.0.1:<port> view proxy ──HTTPS, pinned─
 idea panel          ──/idea/*──▶ this plugin ──HTTPS, pinned──▶ machine API (:30443/api/v1)
 ```
 
-- `lib/client.js` draws the panel: the pairing form, then a full-size iframe.
+- `lib/client.js` draws the panel: the pairing form, then two tabs.
+  **Sessions** is a full-size iframe of the machine's dsh (the main VM or a
+  worker VM). **Team** lists every agent (each team member with its role, VM,
+  whether it is working, its last message; and the task agents with their
+  issue, phase and pull request) next to the messages the agents send each
+  other. Picking an agent filters the messages; "Open session" shows that
+  VM's dsh, where the agent's whole session is.
+- `lib/team-view.js` builds the Team tab: it reads every VM's team log
+  (`/idea-team/log`, written by the machine's idea-team plugin) through the
+  view proxies, keeps one copy of each message, and asks each member's dsh
+  whether its session is working (`session/state`).
 - `lib/index.js` (host side) answers `/idea/*` behind dsh's own login check
   (`connection.requestRejection`). Pairing sends the setup code once and
   receives a device token; the machine's certificate is pinned at that moment.
