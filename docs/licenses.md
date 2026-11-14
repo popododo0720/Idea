@@ -40,7 +40,7 @@ Written 2026-11-12, revised 2026-11-13 (preparing the public release: Chrome rep
 | Noto CJK, Liberation fonts | Debian trixie package | SIL OFL 1.1 | — | known value |
 | Node.js | v26.13.1 | MIT (bundled components under their own licenses) | github.com/nodejs/node | known value |
 | Chromium | Debian trixie package | BSD-3-Clause (bundled components under their own licenses) | chromium.org | known value |
-| dsh (DeepSeek Harness) and official plugins | 0.2.2-rc.1 | MIT | github.com/deepseek-ai/deepseek-harness | repository |
+| dsh (DeepSeek Harness) and official plugins | 0.2.2-rc.3 | MIT | github.com/deepseek-ai/deepseek-harness | repository |
 | pnpm | 11.28.5 | MIT | github.com/pnpm/pnpm | repository |
 | chrome-devtools-mcp (pinned by the dsh browser provider) | 1.9.0 | Apache-2.0 | github.com/ChromeDevTools/chrome-devtools-mcp | repository |
 | Cua Driver (pinned by the dsh desktop provider) | 0.28.0 | MIT | github.com/trycua/cua | repository |

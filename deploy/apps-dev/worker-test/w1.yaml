@@ -27,7 +27,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: desktop
-          image: ghcr.io/popododo0720/idea-worker:0.12.3
+          image: ghcr.io/popododo0720/idea-worker:0.13.0
           env:
             - name: IDEA_PATH_PREFIX
               value: /vm/w1

@@ -4,7 +4,7 @@
   "private": true,
   "description": "Pins dsh (DeepSeek Harness) and pnpm for the worker image. Regenerate package-lock.json with: npm install --package-lock-only --ignore-scripts",
   "dependencies": {
-    "@deepseek-ai/dsh": "0.2.2-rc.1",
+    "@deepseek-ai/dsh": "0.2.2-rc.3",
     "pnpm": "11.28.5"
   }
 }
