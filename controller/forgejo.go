@@ -299,6 +299,34 @@ func (f *Forgejo) Status(ctx context.Context, repo, sha string) (*CombinedStatus
 	return &s, err
 }
 
+// TestsQueued reports whether Forgejo Actions has a run for this commit that
+// has not finished yet: waiting for a runner, blocked or running. A run gets
+// a commit status only once it starts, so a queued run has none.
+func (f *Forgejo) TestsQueued(ctx context.Context, repo, sha string) (bool, error) {
+	var out struct {
+		Runs []struct {
+			HeadSHA string `json:"head_sha"`
+			Status  string `json:"status"`
+		} `json:"workflow_runs"`
+	}
+	if err := f.do(ctx, "GET", "/repos/"+repo+"/actions/tasks?limit=50", nil, &out); err != nil {
+		if isStatus(err, 404) {
+			return false, nil // Actions is off for this repository
+		}
+		return false, err
+	}
+	for _, r := range out.Runs {
+		if r.HeadSHA != sha {
+			continue
+		}
+		switch r.Status {
+		case "waiting", "blocked", "running":
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (f *Forgejo) SetStatus(ctx context.Context, repo, sha, state, name, description string) error {
 	return f.do(ctx, "POST", "/repos/"+repo+"/statuses/"+sha, map[string]string{
 		"state": state, "context": name, "description": description,

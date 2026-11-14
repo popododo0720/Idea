@@ -175,8 +175,11 @@ run_docker() {
 
 run_secrets() {
   step "secrets: gitleaks"
-  gitleaks dir --no-banner --redact --log-level=error .
-  gitleaks git --no-banner --redact --log-level=error .
+  # --verbose prints each finding (file, line, rule) with the secret redacted.
+  # Only the history of the checked-out commit: a clone also holds other
+  # pull requests' branches, which are checked in their own runs.
+  gitleaks dir --no-banner --redact --verbose --log-level=error .
+  gitleaks git --no-banner --redact --verbose --log-level=error --log-opts=HEAD .
 }
 
 steps=("$@")
