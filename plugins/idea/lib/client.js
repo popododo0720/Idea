@@ -92,6 +92,61 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
 .idea-task{border-radius:var(--idea-r-sm);border:1px solid var(--idea-line-soft);background:var(--idea-bg);padding:6px 8px;margin-top:6px;font-size:13px}
 .idea-task-mine{border-color:color-mix(in srgb,var(--idea-link) 55%,transparent)}
 .idea-task-meta{font-size:12px;color:var(--idea-text-3);margin-top:2px}
+.idea-pick-wrap{position:relative;display:inline-flex}
+.idea-pick{display:inline-flex;align-items:center;gap:6px;height:30px;max-width:280px;padding:0 10px;border:0;border-radius:var(--idea-r-sm);background:transparent;color:var(--idea-text);font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+.idea-pick:hover,.idea-pick[aria-expanded="true"]{background:var(--idea-hover)}
+.idea-pick>span{overflow:hidden;text-overflow:ellipsis}
+.idea-pick-sub{color:var(--idea-text-3)}
+.idea-menu{position:absolute;z-index:60;top:calc(100% + 6px);min-width:220px;max-width:360px;max-height:min(420px,70vh);overflow:auto;padding:6px;border-radius:var(--dsw-radius-lg,16px);background:var(--dsw-menu-surface-fill,var(--idea-surface));backdrop-filter:var(--dsw-menu-backdrop-filter,blur(40px) saturate(150%));-webkit-backdrop-filter:var(--dsw-menu-backdrop-filter,blur(40px) saturate(150%));border:1px solid var(--idea-line-soft);box-shadow:0 12px 32px rgba(0,0,0,.22);color:var(--idea-text);text-align:left}
+.idea-menu-right{right:0}
+.idea-menu-left{left:0}
+.idea-menu-head{padding:6px 8px 2px;color:var(--idea-text-3);font-size:11px;line-height:16px;font-weight:500}
+.idea-menu-head:first-child{padding-top:2px}
+.idea-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:34px;padding:6px 10px;border:0;border-radius:var(--idea-r-md);background:transparent;color:var(--idea-text);font:inherit;font-size:14px;text-align:left;cursor:pointer}
+.idea-menu-item:hover{background:var(--idea-hover)}
+.idea-menu-item[disabled]{opacity:.45;cursor:default;background:transparent}
+.idea-menu-item>.idea-grow{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.idea-menu-detail{color:var(--idea-text-3);font-size:13px;white-space:nowrap}
+.idea-menu-danger{color:var(--idea-bad)}
+.idea-menu-search{width:100%;box-sizing:border-box;border:0;background:transparent;color:var(--idea-text);font:inherit;font-size:14px;padding:6px 10px 8px;outline:none}
+.idea-menu-search::placeholder{color:var(--idea-text-3)}
+.idea-git{display:flex;flex:1;min-height:0}
+.idea-git-side{width:380px;flex:none;overflow:auto;border-right:1px solid var(--idea-line-soft);padding:4px 8px 16px}
+.idea-git-main{flex:1;min-width:0;display:flex;flex-direction:column}
+@media (max-width:820px){.idea-git{flex-direction:column}.idea-git-side{width:auto;max-height:50%;border-right:0;border-bottom:1px solid var(--idea-line-soft)}}
+.idea-git-bar{display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--idea-line-soft);flex:none;flex-wrap:wrap}
+.idea-sec{margin-top:8px}
+.idea-sec-head{display:flex;align-items:center;gap:6px;height:30px;padding:0 4px 0 6px;border-radius:var(--idea-r-sm);color:var(--idea-text-2);font-size:13px;font-weight:600;cursor:pointer;user-select:none}
+.idea-sec-head:hover{background:var(--idea-hover)}
+.idea-count{color:var(--idea-text-3);font-weight:400}
+.idea-chev{width:12px;height:12px;flex:none;transition:transform .12s;color:var(--idea-text-3)}
+.idea-chev-open{transform:rotate(90deg)}
+.idea-sub-head{padding:6px 8px 2px;color:var(--idea-text-3);font-size:12px}
+.idea-item{display:flex;align-items:center;gap:8px;min-height:30px;padding:2px 4px 2px 8px;border-radius:var(--idea-r-sm);cursor:pointer;font-size:13px;min-width:0}
+.idea-item:hover{background:var(--idea-hover)}
+.idea-item[aria-selected="true"]{background:var(--idea-active)}
+.idea-item .idea-acts{display:none;gap:2px;flex:none}
+.idea-item:hover .idea-acts,.idea-item[aria-selected="true"] .idea-acts,.idea-item .idea-acts:focus-within{display:inline-flex}
+.idea-ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.idea-dim{color:var(--idea-text-3)}
+.idea-st{font-family:var(--idea-mono);font-size:12px;width:14px;text-align:center;flex:none;font-weight:600}
+.idea-st-A,.idea-st-U{color:var(--idea-ok)}
+.idea-st-M,.idea-st-R,.idea-st-C{color:var(--idea-warn)}
+.idea-st-D{color:var(--idea-bad)}
+.idea-mini{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border:0;border-radius:6px;background:transparent;color:var(--idea-text-2);cursor:pointer;font:inherit;font-size:15px;line-height:1}
+.idea-mini:hover{background:var(--idea-active);color:var(--idea-text)}
+.idea-commit-box{margin:6px 4px 4px;display:flex;flex-direction:column;gap:6px}
+.idea-commit-box textarea{min-height:56px;resize:vertical;font-family:var(--dsw-font-family,system-ui,sans-serif)}
+.idea-check{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--idea-text-2)}
+.idea-refs{font-size:11px;color:var(--idea-link);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
+.idea-diff-head{display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--idea-line-soft);font-size:13px;color:var(--idea-text-2);flex:none;min-height:24px}
+.idea-diff{flex:1;min-height:0;overflow:auto;margin:0;padding:8px 0;font-family:var(--idea-mono);font-size:var(--dsh-code-font-size,12px);line-height:1.6;white-space:pre;tab-size:4}
+.idea-diff>div{padding:0 16px;min-width:max-content}
+.idea-dl-add{background:color-mix(in srgb,var(--idea-ok) 14%,transparent)}
+.idea-dl-del{background:color-mix(in srgb,var(--idea-bad) 14%,transparent)}
+.idea-dl-hunk{color:var(--idea-link);background:color-mix(in srgb,var(--idea-link) 8%,transparent)}
+.idea-dl-meta{color:var(--idea-text-3)}
+.idea-toast{font-size:12px;color:var(--idea-text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
 .idea-icon-btn{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border:0;border-radius:6px;background:transparent;color:var(--idea-text-3);cursor:pointer}
 .idea-icon-btn:hover{background:var(--idea-hover);color:var(--idea-bad)}
 `;
@@ -336,6 +391,319 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
               : h("p", { className: "idea-hint" }, data ? "No messages yet." : "")));
     }
 
+    // ---------------------------------------------------------------- menus
+
+    function useOutside(open, onClose) {
+      const ref = React.useRef(null);
+      useEffect(() => {
+        if (!open) return undefined;
+        const down = e => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+        const key = e => { if (e.key === "Escape") onClose(); };
+        document.addEventListener("mousedown", down, true);
+        document.addEventListener("keydown", key, true);
+        return () => { document.removeEventListener("mousedown", down, true); document.removeEventListener("keydown", key, true); };
+      }, [open, onClose]);
+      return ref;
+    }
+
+    const CheckIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
+      h("path", { d: "M3.5 8.5l3 3 6-7", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" }));
+    const ChevronDown = () => h("svg", { width: 12, height: 12, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true, className: "idea-dim" },
+      h("path", { d: "M4 6l4 4 4-4", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" }));
+    const ChevronRight = ({ open }) => h("svg", { viewBox: "0 0 16 16", fill: "none", "aria-hidden": true, className: "idea-chev" + (open ? " idea-chev-open" : "") },
+      h("path", { d: "M6 4l4 4-4 4", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" }));
+
+    // A menu in dsh's style (the model picker's look): groups with small
+    // headings, a check on the chosen item, optional search.
+    function Menu({ groups, onClose, search, align }) {
+      const [q, setQ] = useState("");
+      const match = it => !q || (it.label + " " + (it.detail || "")).toLowerCase().includes(q.toLowerCase());
+      return h("div", { className: "idea-menu idea-menu-" + (align || "left"), role: "menu" },
+        search ? h("input", { className: "idea-menu-search", placeholder: search, value: q, autoFocus: true, onChange: e => setQ(e.target.value) }) : null,
+        groups.map((g, gi) => {
+          const items = g.items.filter(match);
+          if (!items.length) return null;
+          return h(React.Fragment, { key: gi },
+            g.label ? h("div", { className: "idea-menu-head" }, g.label) : null,
+            items.map(it => h("button", {
+              key: it.key || it.label, type: "button", role: "menuitem", className: "idea-menu-item" + (it.danger ? " idea-menu-danger" : ""),
+              disabled: it.disabled, title: it.title || undefined,
+              onClick: () => { onClose(); it.onSelect(); },
+            }, h("span", { className: "idea-grow" }, it.label),
+              it.detail ? h("span", { className: "idea-menu-detail" }, it.detail) : null,
+              it.checked ? h(CheckIcon) : null)));
+        }));
+    }
+
+    // A button that opens a Menu: the trigger shows the chosen item.
+    function Picker({ label, sub, groups, search, align, title }) {
+      const [open, setOpen] = useState(false);
+      const close = useCallback(() => setOpen(false), []);
+      const ref = useOutside(open, close);
+      return h("div", { className: "idea-pick-wrap", ref },
+        h("button", { type: "button", className: "idea-pick", "aria-expanded": open ? "true" : "false", title, onClick: () => setOpen(!open) },
+          h("span", null, label), sub ? h("span", { className: "idea-pick-sub" }, sub) : null, h(ChevronDown)),
+        open ? h(Menu, { groups, onClose: close, search, align }) : null);
+    }
+
+    // "⋯" on a row: its actions as a Menu.
+    function MoreMenu({ items }) {
+      const [open, setOpen] = useState(false);
+      const close = useCallback(() => setOpen(false), []);
+      const ref = useOutside(open, close);
+      return h("span", { className: "idea-pick-wrap", ref, onClick: e => e.stopPropagation() },
+        h("button", { type: "button", className: "idea-mini", title: "More actions", "aria-label": "More actions", onClick: () => setOpen(!open) }, "⋯"),
+        open ? h(Menu, { groups: [{ items }], onClose: close, align: "right" }) : null);
+    }
+
+    // ------------------------------------------------------------------ git
+
+    function DiffView({ text }) {
+      const lines = String(text || "").split("\n");
+      if (lines.length && lines[lines.length - 1] === "") lines.pop();
+      return h("div", { className: "idea-diff" }, lines.slice(0, 20000).map((l, i) => {
+        const c = l.startsWith("+++") || l.startsWith("---") || l.startsWith("diff ") || l.startsWith("index ") ? "meta"
+          : l.startsWith("+") ? "add" : l.startsWith("-") ? "del" : l.startsWith("@@") ? "hunk"
+          : /^(commit |Author:|Date:|new file|deleted file|similarity|rename |Binary)/.test(l) ? "meta" : "";
+        return h("div", { key: i, className: c ? "idea-dl-" + c : undefined }, l || " ");
+      }));
+    }
+
+    function Section({ title, count, actions, children, open, onToggle }) {
+      return h("div", { className: "idea-sec" },
+        h("div", { className: "idea-sec-head", onClick: onToggle },
+          h(ChevronRight, { open }), h("span", { className: "idea-grow" }, title, count !== undefined ? h("span", { className: "idea-count" }, "  " + count) : null),
+          actions ? h("span", { style: { display: "inline-flex", gap: "2px" }, onClick: e => e.stopPropagation() }, actions) : null),
+        open ? children : null);
+    }
+
+    function ago(t) {
+      const d = new Date(t);
+      if (isNaN(d)) return "";
+      const s = (Date.now() - d.getTime()) / 1000;
+      if (s < 60) return "now";
+      if (s < 3600) return Math.floor(s / 60) + "m";
+      if (s < 86400) return Math.floor(s / 3600) + "h";
+      if (s < 86400 * 30) return Math.floor(s / 86400) + "d";
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    }
+
+    function splitPath(p) {
+      const i = p.lastIndexOf("/");
+      return i < 0 ? ["", p] : [p.slice(0, i + 1), p.slice(i + 1)];
+    }
+
+    function loadPref(key) { try { return localStorage.getItem("idea." + key) || ""; } catch { return ""; } }
+    function savePref(key, v) { try { localStorage.setItem("idea." + key, v); } catch { /* private window */ } }
+
+    // Git, mouse first (lazygit's panels): files, branches, commits and
+    // stashes on the left, the diff of what is picked on the right.
+    function GitView({ visible }) {
+      const [repos, setRepos] = useState(null);
+      const [repo, setRepo] = useState(loadPref("gitRepo"));
+      const [st, setSt] = useState(null);
+      const [commits, setCommits] = useState([]);
+      const [logRef, setLogRef] = useState("");
+      const [sel, setSel] = useState(null);
+      const [diff, setDiff] = useState(null);
+      const [msg, setMsg] = useState("");
+      const [amend, setAmend] = useState(false);
+      const [busy, setBusy] = useState("");
+      const [error, setError] = useState(null);
+      const [note, setNote] = useState("");
+      const [open, setOpen] = useState({ files: true, branches: true, commits: true, stash: false, remotes: false });
+      const toggle = k => setOpen(Object.assign({}, open, { [k]: !open[k] }));
+      const base = repo ? "/git/local/" + encodeURIComponent(repo) : "";
+
+      const loadRepos = useCallback(async () => {
+        try {
+          const r = await api("GET", "/git/repos");
+          setRepos(r.local || []);
+          if ((!repo || !(r.local || []).some(x => x.id === repo)) && r.local && r.local[0]) setRepo(r.local[0].id);
+        } catch (err) { setError(err); }
+      }, [repo]);
+      useEffect(() => { if (visible && !repos) loadRepos(); }, [visible, repos, loadRepos]);
+      useEffect(() => { if (repo) savePref("gitRepo", repo); setSt(null); setCommits([]); setLogRef(""); setSel(null); setDiff(null); }, [repo]);
+
+      const refresh = useCallback(async () => {
+        if (!base) return;
+        try {
+          const [s, l] = await Promise.all([api("GET", base + "/state"), api("GET", base + "/log" + (logRef ? "?ref=" + encodeURIComponent(logRef) : ""))]);
+          setSt(s); setCommits(l.commits || []); setError(null);
+        } catch (err) { setError(err); }
+      }, [base, logRef]);
+      useEffect(() => {
+        if (!visible || !base) return undefined;
+        refresh();
+        const t = setInterval(refresh, 10000);
+        return () => clearInterval(t);
+      }, [visible, base, refresh]);
+
+      const show = async (pick, q, title) => {
+        setSel(pick);
+        setDiff({ title, text: "", loading: true });
+        try { const r = await api("POST", base + "/diff", q); setDiff({ title, text: r.diff, clipped: r.clipped }); }
+        catch (err) { setDiff({ title, text: "", error: String(err.message || err) }); }
+      };
+      const act = async (op, extra, ask) => {
+        if (ask && !confirm(ask)) return;
+        setBusy(op); setError(null);
+        try {
+          const r = await api("POST", base + "/act", Object.assign({ op }, extra || {}));
+          const last = String(r.output || "").split("\n").filter(Boolean).pop();
+          setNote(last || "Done: " + op);
+          if (op === "commit") { setMsg(""); setAmend(false); }
+          await refresh();
+        } catch (err) { setError(err); }
+        setBusy("");
+      };
+
+      const files = (st && st.files) || [];
+      const staged = files.filter(f => f.staged);
+      const changes = files.filter(f => f.unstaged);
+      const branches = (st && st.branches) || [];
+      const local = branches.filter(b => !b.remote);
+      const remote = branches.filter(b => b.remote);
+      const head = st && st.head;
+      const current = head ? head.branch : "";
+      const isSel = (k) => sel === k;
+
+      const fileRow = (f, isStaged) => {
+        const key = (isStaged ? "s:" : "u:") + f.path;
+        const [dir, name] = splitPath(f.path);
+        const code = f.conflict ? "!" : isStaged ? f.x : (f.untracked ? "U" : f.y);
+        return h("div", { key, className: "idea-item", "aria-selected": isSel(key) ? "true" : "false", title: f.path,
+          onClick: () => show(key, { kind: "file", path: f.path, staged: isStaged, untracked: f.untracked }, f.path) },
+          h("span", { className: "idea-st idea-st-" + (f.conflict ? "D" : code), title: f.conflict ? "Conflict" : undefined }, code === "." ? "" : code),
+          h("span", { className: "idea-ellipsis idea-grow" }, name, dir ? h("span", { className: "idea-dim" }, "  " + dir) : null),
+          h("span", { className: "idea-acts" },
+            isStaged
+              ? h("button", { type: "button", className: "idea-mini", title: "Unstage", "aria-label": "Unstage", onClick: e => { e.stopPropagation(); act("unstage", { paths: [f.path] }); } }, "−")
+              : h("button", { type: "button", className: "idea-mini", title: "Stage", "aria-label": "Stage", onClick: e => { e.stopPropagation(); act("stage", { paths: [f.path] }); } }, "+"),
+            isStaged ? null : h(MoreMenu, { items: [
+              { label: "Discard changes", danger: true, onSelect: () => act("discard", { paths: [f.path], untracked: f.untracked }, "Discard the changes to " + f.path + "? This cannot be undone.") },
+            ] })));
+      };
+
+      const branchRow = b => {
+        const key = "b:" + b.name;
+        return h("div", { key, className: "idea-item", "aria-selected": logRef === b.name ? "true" : "false", title: b.subject,
+          onClick: () => setLogRef(logRef === b.name ? "" : b.name) },
+          h("span", { className: "idea-dot" + (b.current ? " idea-dot-working" : ""), style: b.current ? null : { visibility: b.remote ? "hidden" : "visible" } }),
+          h("span", { className: "idea-ellipsis idea-grow", style: b.current ? { fontWeight: 600 } : null }, b.name),
+          b.track ? h("span", { className: "idea-dim", style: { fontSize: "12px" } }, b.track.replace(/[\[\]]/g, "")) : null,
+          h("span", { className: "idea-acts" }, h(MoreMenu, { items: b.remote ? [
+            { label: "Check out as a local branch", onSelect: () => act("checkout", { branch: b.name, remote: true }) },
+            { label: "Merge into " + current, disabled: !current, onSelect: () => act("merge", { branch: b.name }, "Merge " + b.name + " into " + current + "?") },
+          ] : [
+            { label: "Check out", disabled: b.current, onSelect: () => act("checkout", { branch: b.name }) },
+            { label: "New branch from here", onSelect: () => { const n = prompt("New branch name (from " + b.name + ")"); if (n) act("createBranch", { name: n.trim(), from: b.name }); } },
+            { label: "Merge into " + current, disabled: b.current || !current, onSelect: () => act("merge", { branch: b.name }, "Merge " + b.name + " into " + current + "?") },
+            { label: "Delete", danger: true, disabled: b.current, onSelect: () => act("deleteBranch", { branch: b.name }, "Delete branch " + b.name + "?") },
+            { label: "Force delete", danger: true, disabled: b.current, onSelect: () => act("deleteBranch", { branch: b.name, force: true }, "Delete branch " + b.name + " even if it is not merged?") },
+          ] })));
+      };
+
+      const commitRow = c => {
+        const key = "c:" + c.sha;
+        return h("div", { key, className: "idea-item", "aria-selected": isSel(key) ? "true" : "false", title: c.subject + "\n" + c.author + " · " + c.date,
+          onClick: () => show(key, { kind: "commit", sha: c.sha }, c.short + "  " + c.subject) },
+          h("span", { className: "idea-tag", style: { flex: "none" } }, c.short),
+          h("span", { className: "idea-ellipsis idea-grow" }, c.subject),
+          c.refs ? h("span", { className: "idea-refs" }, c.refs.replace(/HEAD -> /, "")) : null,
+          h("span", { className: "idea-dim", style: { fontSize: "12px", flex: "none" } }, ago(c.date)),
+          h("span", { className: "idea-acts" }, h(MoreMenu, { items: [
+            { label: "Copy SHA", onSelect: () => { try { navigator.clipboard.writeText(c.sha); setNote("Copied " + c.short); } catch { /* no clipboard */ } } },
+            { label: "New branch here", onSelect: () => { const n = prompt("New branch name (at " + c.short + ")"); if (n) act("createBranch", { name: n.trim(), from: c.sha }); } },
+            { label: "Cherry-pick onto " + current, disabled: !current, onSelect: () => act("cherryPick", { sha: c.sha }, "Cherry-pick " + c.short + " onto " + current + "?") },
+            { label: "Revert", onSelect: () => act("revert", { sha: c.sha }, "Make a commit that reverts " + c.short + "?") },
+          ] })));
+      };
+
+      const stashRow = s => {
+        const key = "s:" + s.ref;
+        return h("div", { key, className: "idea-item", "aria-selected": isSel(key) ? "true" : "false",
+          onClick: () => show(key, { kind: "stash", ref: s.ref }, s.ref + "  " + s.subject) },
+          h("span", { className: "idea-tag", style: { flex: "none" } }, s.ref.replace("stash@", "")),
+          h("span", { className: "idea-ellipsis idea-grow" }, s.subject),
+          h("span", { className: "idea-dim", style: { fontSize: "12px", flex: "none" } }, ago(s.date)),
+          h("span", { className: "idea-acts" }, h(MoreMenu, { items: [
+            { label: "Apply", onSelect: () => act("stashApply", { ref: s.ref }) },
+            { label: "Pop", onSelect: () => act("stashPop", { ref: s.ref }) },
+            { label: "Drop", danger: true, onSelect: () => act("stashDrop", { ref: s.ref }, "Drop " + s.ref + "? This cannot be undone.") },
+          ] })));
+      };
+
+      const repoItem = repos && repos.find(r => r.id === repo);
+      const bar = h("div", { className: "idea-git-bar" },
+        h(Picker, {
+          label: repoItem ? repoItem.title : (repos && !repos.length ? "No git repositories" : "Choose a repository"),
+          title: repoItem ? repoItem.root : "", search: repos && repos.length > 8 ? "Search repositories..." : "",
+          groups: [{ label: "This computer", items: (repos || []).map(r => ({ key: r.id, label: r.title, detail: "", title: r.root, checked: r.id === repo, onSelect: () => setRepo(r.id) })) },
+                   { label: "", items: [{ key: "reload", label: "Reload the list", onSelect: () => { setRepos(null); } }] }],
+        }),
+        head ? h(Picker, {
+          label: current || "(detached)", sub: head.upstream ? (head.ahead ? "↑" + head.ahead + " " : "") + (head.behind ? "↓" + head.behind : "") : "no upstream",
+          search: local.length > 8 ? "Search branches..." : "",
+          groups: [{ label: "Branches", items: local.map(b => ({ key: b.name, label: b.name, checked: b.current, onSelect: () => { if (!b.current) act("checkout", { branch: b.name }); } })) },
+                   { label: "", items: [{ key: "new", label: "New branch…", onSelect: () => { const n = prompt("New branch name"); if (n) act("createBranch", { name: n.trim() }); } }] }],
+        }) : null,
+        h("span", { className: "idea-toast idea-grow", title: note }, busy ? "Running " + busy + "…" : note),
+        h("button", { type: "button", className: "idea-btn", disabled: !!busy || !base, onClick: () => act("fetch") }, "Fetch"),
+        h("button", { type: "button", className: "idea-btn", disabled: !!busy || !base, onClick: () => act("pull") }, "Pull"),
+        h("button", { type: "button", className: "idea-btn", disabled: !!busy || !base, onClick: () => act("push") }, "Push"),
+        h("button", { type: "button", className: "idea-btn", disabled: !base, onClick: refresh, title: "Refresh" }, "↻"),
+        base ? h(MoreMenu, { items: [
+          { label: "Abort the merge", disabled: !files.some(f => f.conflict), onSelect: () => act("mergeAbort", {}, "Abort the merge and go back to before it?") },
+          { label: "Copy the folder path", onSelect: () => { try { navigator.clipboard.writeText(st ? st.root : ""); setNote("Copied the path"); } catch { /* no clipboard */ } } },
+        ] }) : null);
+
+      const side = h("div", { className: "idea-git-side" },
+        error ? h("div", { style: { margin: "8px 4px" } }, h(ErrorLine, { error })) : null,
+        repos && !repos.length ? h("p", { className: "idea-hint", style: { margin: "12px 8px" } }, "None of this dsh's workspaces is a git repository. Open a folder with a repository as a workspace and it shows up here.") : null,
+        st ? h(React.Fragment, null,
+          h(Section, { title: "Files", count: files.length, open: open.files, onToggle: () => toggle("files"),
+            actions: [
+              h("button", { key: "sa", type: "button", className: "idea-mini", title: "Stage all", "aria-label": "Stage all", disabled: !changes.length, onClick: () => act("stageAll") }, "+"),
+              h("button", { key: "ua", type: "button", className: "idea-mini", title: "Unstage all", "aria-label": "Unstage all", disabled: !staged.length, onClick: () => act("unstageAll") }, "−"),
+            ] },
+            staged.length ? h("div", { className: "idea-sub-head" }, "Staged") : null,
+            staged.map(f => fileRow(f, true)),
+            changes.length ? h("div", { className: "idea-sub-head" }, "Changes") : null,
+            changes.map(f => fileRow(f, false)),
+            !files.length ? h("p", { className: "idea-hint", style: { margin: "4px 8px" } }, "Nothing to commit.") : null,
+            st.more ? h("p", { className: "idea-hint", style: { margin: "4px 8px" } }, st.more + " more files not shown.") : null,
+            h("div", { className: "idea-commit-box" },
+              h("textarea", { className: "idea-input", placeholder: "Commit message", value: msg, onChange: e => setMsg(e.target.value) }),
+              h("div", { className: "idea-row" },
+                h("label", { className: "idea-check idea-grow" }, h("input", { type: "checkbox", checked: amend, onChange: e => setAmend(e.target.checked) }), "Amend last commit"),
+                h("button", { type: "button", className: "idea-btn", disabled: !!busy || !msg.trim() || (!staged.length && !amend),
+                  onClick: () => act("commit", { message: msg, amend }) }, staged.length ? "Commit " + staged.length : "Commit")))),
+          h(Section, { title: "Branches", count: local.length, open: open.branches, onToggle: () => toggle("branches"),
+            actions: [h("button", { key: "nb", type: "button", className: "idea-mini", title: "New branch", "aria-label": "New branch", onClick: () => { const n = prompt("New branch name"); if (n) act("createBranch", { name: n.trim() }); } }, "+")] },
+            local.map(branchRow),
+            remote.length ? h("div", { className: "idea-sub-head", style: { cursor: "pointer" }, onClick: () => toggle("remotes") }, (open.remotes ? "▾ " : "▸ ") + "Remote branches (" + remote.length + ")") : null,
+            open.remotes ? remote.map(branchRow) : null),
+          h(Section, { title: logRef ? "Commits · " + logRef : "Commits", count: commits.length, open: open.commits, onToggle: () => toggle("commits") },
+            commits.map(commitRow),
+            !commits.length ? h("p", { className: "idea-hint", style: { margin: "4px 8px" } }, "No commits yet.") : null),
+          h(Section, { title: "Stash", count: st.stashes.length, open: open.stash, onToggle: () => toggle("stash"),
+            actions: [h("button", { key: "st", type: "button", className: "idea-mini", title: "Stash all changes", "aria-label": "Stash all changes", disabled: !files.length, onClick: () => { const m = prompt("Stash message (optional)", ""); if (m !== null) act("stash", { message: m }); } }, "+")] },
+            st.stashes.map(stashRow),
+            !st.stashes.length ? h("p", { className: "idea-hint", style: { margin: "4px 8px" } }, "No stashes.") : null))
+          : (repo && !error ? h("p", { className: "idea-hint", style: { margin: "12px 8px" } }, "Loading…") : null));
+
+      const main = h("div", { className: "idea-git-main" },
+        h("div", { className: "idea-diff-head" }, h("span", { className: "idea-ellipsis idea-grow" }, diff ? diff.title : "Pick a file, a commit or a stash to see its changes.")),
+        diff ? (diff.error ? h("div", { style: { padding: "12px 16px" } }, h(ErrorLine, { error: diff.error }))
+          : diff.loading ? h("p", { className: "idea-hint", style: { padding: "12px 16px" } }, "Loading…")
+          : h(React.Fragment, null, h(DiffView, { text: diff.text || "(no changes)" }), diff.clipped ? h("p", { className: "idea-hint", style: { padding: "4px 16px" } }, "Cut at 2 MB.") : null))
+          : null);
+
+      return h("div", { className: visible ? "idea-team" : "idea-hide", style: { flexDirection: "column" } },
+        bar, h("div", { className: "idea-git" }, side, main));
+    }
+
     function MachineView({ state, onUnpaired }) {
       const [src, setSrc] = useState(null);
       const [error, setError] = useState(null);
@@ -359,16 +727,21 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
       return h("div", { className: "idea-root" },
         h("div", { className: "idea-bar" },
           h("span", { className: "idea-name" }, "idea"),
-          h("div", { className: "idea-tabs", role: "tablist" }, tabButton("sessions", "Sessions"), tabButton("team", "Team")),
+          h("div", { className: "idea-tabs", role: "tablist" }, tabButton("sessions", "Sessions"), tabButton("team", "Team"), tabButton("git", "Git")),
           h("span", { className: "idea-sub idea-grow" }, state.host || state.url || ""),
           tab === "sessions" && workers.length > 0
-            ? h("select", { className: "idea-input idea-vm", value: vm, onChange: e => setVm(e.target.value), title: "Which VM to show" },
-                h("option", { value: "" }, "idea-dsh · main"),
-                workers.map(w => h("option", { key: w.name, value: w.name, disabled: !w.ready }, vmLabel(w, vms.workerSlots))))
+            ? h(Picker, {
+                label: vm || "idea-dsh", sub: vm ? "" : "main", align: "right", title: "Which VM to show",
+                groups: [
+                  { label: "Main", items: [{ key: "main", label: "idea-dsh", detail: "plans the work", checked: !vm, onSelect: () => setVm("") }] },
+                  { label: "Worker VMs", items: workers.map(w => ({ key: w.name, label: w.name, detail: vmLabel(w, vms.workerSlots).replace(w.name + " · ", ""), disabled: !w.ready, checked: vm === w.name, onSelect: () => setVm(w.name) })) },
+                ],
+              })
             : null,
           tab === "sessions" ? h("button", { type: "button", className: "idea-btn", onClick: load }, "Reload") : null,
           state.dev ? null : h("button", { type: "button", className: "idea-btn", onClick: unpair }, "Disconnect")),
         h(TeamView, { visible: tab === "team", onOpen: openOn }),
+        h(GitView, { visible: tab === "git" }),
         h("div", { className: tab === "sessions" ? "idea-team" : "idea-hide", style: { flexDirection: "column" } },
           error
             ? h("div", { className: "idea-center idea-stack" }, h(ErrorLine, { error }), h("button", { type: "button", className: "idea-btn", onClick: load }, "Try again"))

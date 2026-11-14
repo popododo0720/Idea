@@ -24,6 +24,7 @@ import { pinnedSocket, portOf } from './tls-pin.js'
 import { createModelSync } from './model-sync.js'
 import { createSubscriptionsSync } from './subscriptions-sync.js'
 import { teamView } from './team-view.js'
+import { createLocalGit } from './git-local.js'
 
 export const name = 'idea'
 export const inject = ['webServer', 'connection']
@@ -224,6 +225,16 @@ export function apply(ctx) {
     paired: async () => Boolean(process.env.IDEA_DEV_DSH_LOGIN) || (await loadPairing()) !== undefined,
   })
 
+  // The Git tab's repositories on this computer: the workspaces of this dsh.
+  const localGit = createLocalGit({
+    workspaces: () => {
+      let registry
+      try { registry = ctx.get('workspaceRegistry') } catch { /* not in this profile */ }
+      if (!registry || typeof registry.list !== 'function') return []
+      return registry.list().map(w => ({ id: String(w.id), title: String(w.title || w.path), path: String(w.path) }))
+    },
+  })
+
   // Worker VMs that are up, for the Team tab.
   const workerVms = async () => {
     if (process.env.IDEA_DEV_DSH_LOGIN) return []
@@ -275,6 +286,22 @@ export function apply(ctx) {
       let workers
       try { workers = await workerVms() } catch (e) { sendJson(res, 502, { error: `Could not reach the machine: ${e.message}`, offline: true }); return }
       sendJson(res, 200, await teamView({ workers, viewOf }))
+      return
+    }
+
+    // The Git tab, for the repositories of this computer's workspaces.
+    if (sub === '/git/repos' && method === 'GET') {
+      sendJson(res, 200, { local: await localGit.repos() })
+      return
+    }
+    const g = /^\/git\/local\/([A-Za-z0-9_-]{1,100})\/(state|log|diff|act)$/.exec(sub)
+    if (g) {
+      const [, id, what] = g
+      if (what === 'state' && method === 'GET') { sendJson(res, 200, await localGit.state(id)); return }
+      if (what === 'log' && method === 'GET') { sendJson(res, 200, await localGit.log(id, url.searchParams.get('ref') || '')); return }
+      if (what === 'diff' && method === 'POST') { sendJson(res, 200, await localGit.diff(id, await readJson(req))); return }
+      if (what === 'act' && method === 'POST') { sendJson(res, 200, await localGit.act(id, await readJson(req))); return }
+      sendJson(res, 405, { error: 'method not allowed' })
       return
     }
 
