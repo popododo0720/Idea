@@ -60,6 +60,7 @@ for f in plugins/idea/lib/*.js; do
   node --check "$f" || { echo "does not parse: $f"; exit 1; }
 done
 echo "ok: plugins/idea/lib"
+node --test plugins/idea/test/
 
 echo "== gitleaks"
 gitleaks dir --no-banner --redact --log-level=error .

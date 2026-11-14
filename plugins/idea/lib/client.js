@@ -1,9 +1,12 @@
 // idea: the DeepSeek Harness plugin for an idea machine (browser half).
 //
 // Adds an "idea" entry to the dsh sidebar. Before pairing it asks for the
-// machine's address and setup code. After pairing it shows the machine's own
-// dsh (its workspaces, sessions and transcripts, as dsh draws them), framed
-// through this plugin's local proxy (lib/view-proxy.js).
+// machine's address and setup code. After pairing it has two tabs:
+// - Sessions: the machine's own dsh (its workspaces, sessions and
+//   transcripts, as dsh draws them), on the main VM or a worker VM, framed
+//   through this plugin's local proxy (lib/view-proxy.js).
+// - Team: every agent (team members and task agents) with what it is doing,
+//   and the messages the agents send each other (lib/team-view.js).
 //
 // Hand-written in the client-module format dsh serves (a factory registered
 // with the page's module loader; React comes from dsh's shared module table),
@@ -43,6 +46,34 @@ window.__ModuleLoader__.load({
 .idea-input:focus{outline:2px solid color-mix(in srgb,#4f8cff 45%,transparent)}
 .idea-vm{width:auto;max-width:240px;padding:4px 8px}
 .idea-alert{border:1px solid color-mix(in srgb,var(--idea-bad) 40%,transparent);color:var(--idea-bad);border-radius:6px;padding:10px 12px}
+.idea-tabs{display:flex;gap:2px}
+.idea-tab{height:26px;padding:0 10px;border:0;border-radius:6px;background:transparent;color:inherit;font:inherit;font-size:12px;cursor:pointer;opacity:.65}
+.idea-tab:hover{background:var(--idea-hover)}
+.idea-tab[aria-selected="true"]{background:var(--idea-hover);opacity:1;font-weight:600}
+.idea-hide{display:none!important}
+.idea-team{display:flex;flex:1;min-height:0}
+.idea-agents{width:320px;flex:none;overflow:auto;border-right:1px solid var(--idea-line);padding:8px}
+.idea-chat{flex:1;min-width:0;overflow:auto;padding:12px 16px}
+@media (max-width:720px){.idea-team{flex-direction:column}.idea-agents{width:auto;max-height:45%;border-right:0;border-bottom:1px solid var(--idea-line)}}
+.idea-group{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;opacity:.55;margin:12px 6px 6px}
+.idea-group:first-child{margin-top:4px}
+.idea-card{display:block;width:100%;text-align:left;border:1px solid var(--idea-line);border-radius:8px;background:transparent;color:inherit;font:inherit;padding:8px 10px;margin:0 0 6px;cursor:pointer}
+.idea-card:hover{background:var(--idea-hover)}
+.idea-card[aria-pressed="true"]{border-color:color-mix(in srgb,#4f8cff 60%,transparent);background:color-mix(in srgb,#4f8cff 8%,transparent)}
+.idea-row{display:flex;align-items:center;gap:6px;min-width:0}
+.idea-dot{width:8px;height:8px;border-radius:50%;flex:none;background:color-mix(in srgb,currentColor 35%,transparent)}
+.idea-dot-working{background:#2da44e}
+.idea-dot-unknown{background:#d4a72c}
+.idea-dot-failed{background:var(--idea-bad)}
+.idea-dot-stopped{background:transparent;border:1.5px solid color-mix(in srgb,currentColor 40%,transparent);box-sizing:border-box}
+.idea-who{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.idea-tag{font-family:ui-monospace,"Geist Mono",Menlo,monospace;font-size:11px;opacity:.6;white-space:nowrap}
+.idea-line1{font-size:12px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.idea-msg{margin:0 0 14px}
+.idea-msg-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;font-size:12px;margin-bottom:3px}
+.idea-msg-body{white-space:pre-wrap;word-break:break-word;border-left:2px solid var(--idea-line);padding:2px 0 2px 10px;margin:0;font:inherit}
+.idea-link{background:none;border:0;padding:0;color:#4f8cff;font:inherit;font-size:12px;cursor:pointer}
+.idea-link:hover{text-decoration:underline}
 `;
     function ensureStyle() {
       if (typeof document === "undefined" || document.querySelector("style[data-idea-css]")) return;
@@ -102,7 +133,7 @@ window.__ModuleLoader__.load({
         if (!enabled) return undefined;
         let alive = true;
         const poll = async () => {
-          try { const v = await api("GET", "/vms"); if (alive) setVms(v); } catch { /* keep the last list */ }
+          try { const v = await api("GET", "/v1/vms"); if (alive) setVms(v); } catch { /* keep the last list */ }
         };
         poll();
         const t = setInterval(poll, 15000);
@@ -116,10 +147,137 @@ window.__ModuleLoader__.load({
       return `${w.name} · ${state}`;
     }
 
+    function timeOf(t) {
+      if (!t) return "";
+      const d = new Date(t);
+      if (isNaN(d)) return "";
+      const today = new Date().toDateString() === d.toDateString();
+      return today ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    }
+
+    const TASK_DOT = { Working: "working", Failed: "failed" };
+
+    function AgentCard({ pressed, onClick, dot, title, tag, line, sub }) {
+      return h("button", { type: "button", className: "idea-card", "aria-pressed": pressed ? "true" : "false", onClick },
+        h("div", { className: "idea-row" },
+          h("span", { className: "idea-dot" + (dot ? " idea-dot-" + dot : ""), title: dot || "idle" }),
+          h("span", { className: "idea-who idea-grow" }, title),
+          tag ? h("span", { className: "idea-tag" }, tag) : null),
+        sub ? h("div", { className: "idea-line1" }, sub) : null,
+        line ? h("div", { className: "idea-line1" }, line) : null);
+    }
+
+    function Message({ m }) {
+      const [open, setOpen] = useState(false);
+      const long = m.text.length > 700;
+      return h("div", { className: "idea-msg" },
+        h("div", { className: "idea-msg-head" },
+          h("strong", null, m.from), h("span", { className: "idea-tag" }, m.fromVm),
+          h("span", { "aria-hidden": true }, "→"),
+          h("strong", null, m.to), h("span", { className: "idea-tag" }, m.toVm || ""),
+          h("span", { className: "idea-tag idea-grow" }, "team " + m.team),
+          h("span", { className: "idea-tag" }, timeOf(m.t))),
+        h("pre", { className: "idea-msg-body" }, long && !open ? m.text.slice(0, 700) + "…" : m.text),
+        long ? h("button", { type: "button", className: "idea-link", onClick: () => setOpen(!open) }, open ? "Show less" : "Show all") : null,
+        m.clipped ? h("p", { className: "idea-hint" }, "Shortened here; the full text is in the session.") : null);
+    }
+
+    // Every agent and its messages. Polls while shown.
+    function TeamView({ visible, onOpen }) {
+      const [data, setData] = useState(null);
+      const [tasks, setTasks] = useState([]);
+      const [error, setError] = useState(null);
+      const [pick, setPick] = useState(null); // {kind:"member", team, name, vm} | {kind:"task", name, vm}
+      const chat = React.useRef(null);
+      useEffect(() => {
+        if (!visible) return undefined;
+        let alive = true;
+        let n = 0;
+        const poll = async () => {
+          try { const v = await api("GET", "/team"); if (alive) { setData(v); setError(null); } } catch (err) { if (alive) setError(err); }
+          if (n++ % 3 === 0) {
+            try { const s = await api("GET", "/v1/status"); if (alive) setTasks(s.tasks || []); } catch { /* keep the last list */ }
+          }
+        };
+        poll();
+        const t = setInterval(poll, 5000);
+        return () => { alive = false; clearInterval(t); };
+      }, [visible]);
+
+      const teams = (data && data.teams) || [];
+      const all = (data && data.messages) || [];
+      const shown = pick && pick.kind === "member"
+        ? all.filter(m => m.team === pick.team && (m.from === pick.name || m.to === pick.name || m.to === "all"))
+        : pick && pick.kind === "team" ? all.filter(m => m.team === pick.team) : all;
+      const activeTasks = tasks.filter(t => t.phase !== "Done" && t.phase !== "Merged").slice(0, 50);
+
+      // Stay at the bottom while new messages come in, unless scrolled up.
+      const atBottom = React.useRef(true);
+      useEffect(() => {
+        const el = chat.current;
+        if (el && atBottom.current) el.scrollTop = el.scrollHeight;
+      }, [shown.length, pick]);
+      const onScroll = e => { const el = e.currentTarget; atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; };
+
+      const same = (a, b) => a && b && a.kind === b.kind && a.team === b.team && a.name === b.name;
+      const choose = p => setPick(same(pick, p) ? null : p);
+      const pickedLabel = !pick ? "All messages"
+        : pick.kind === "team" ? "Team " + pick.team
+        : pick.kind === "member" ? pick.name + " · team " + pick.team : pick.name;
+
+      return h("div", { className: "idea-team" + (visible ? "" : " idea-hide") },
+        h("div", { className: "idea-agents" },
+          error ? h(ErrorLine, { error }) : null,
+          !data && !error ? h("p", { className: "idea-hint" }, "Loading…") : null,
+          teams.map(t => h(React.Fragment, { key: t.team },
+            h("div", { className: "idea-group" },
+              h("button", { type: "button", className: "idea-link", onClick: () => choose({ kind: "team", team: t.team }) }, "Team " + t.team),
+              t.last ? " · " + timeOf(t.last) : ""),
+            t.members.map(m => h(AgentCard, {
+              key: m.name,
+              pressed: same(pick, { kind: "member", team: t.team, name: m.name }),
+              onClick: () => choose({ kind: "member", team: t.team, name: m.name, vm: m.vm }),
+              dot: m.status === "working" ? "working" : m.status === "unknown" ? "unknown" : m.status === "stopped" ? "stopped" : "",
+              title: m.name, tag: m.vm, sub: m.status === "stopped" ? "stopped" + (m.role ? " · " + m.role : "") : m.role,
+              line: m.lastText ? timeOf(m.lastAt) + " · " + m.lastText : "",
+            })))),
+          data && data.older ? h("p", { className: "idea-hint" }, data.older + " older teams not shown.") : null,
+          activeTasks.length ? h("div", { className: "idea-group" }, "Task agents") : null,
+          activeTasks.map(t => h(AgentCard, {
+            key: t.name,
+            pressed: same(pick, { kind: "task", name: t.name }),
+            onClick: () => choose({ kind: "task", name: t.name, vm: t.vm }),
+            dot: TASK_DOT[t.phase] || "",
+            title: t.project + "#" + t.issue + " " + t.title,
+            tag: t.vm || "",
+            sub: t.phase + (t.pullRequest ? " · PR #" + t.pullRequest : ""),
+            line: t.message || "",
+          })),
+          data && !teams.length && !activeTasks.length
+            ? h("p", { className: "idea-hint" }, "No agents yet. When the orchestrator starts a team (team_spawn) or a project gets issues, the agents show up here.")
+            : null,
+          data && data.errors && data.errors.length
+            ? h("p", { className: "idea-hint" }, "Not answering: " + data.errors.map(e => e.vm).join(", "))
+            : null),
+        h("div", { className: "idea-chat", ref: chat, onScroll },
+          h("div", { className: "idea-row", style: { marginBottom: "12px" } },
+            h("strong", { className: "idea-grow" }, pickedLabel),
+            pick && pick.vm
+              ? h("button", { type: "button", className: "idea-btn", onClick: () => onOpen(pick.vm) }, "Open session on " + pick.vm)
+              : null,
+            pick ? h("button", { type: "button", className: "idea-btn", onClick: () => setPick(null) }, "Show all") : null),
+          pick && pick.kind === "task"
+            ? h("p", { className: "idea-hint" }, "Task agents work alone; their work is in the session and the pull request. Open the session to see every step.")
+            : shown.length
+              ? shown.map((m, i) => h(Message, { key: m.t + "/" + i, m }))
+              : h("p", { className: "idea-hint" }, data ? "No messages yet." : "")));
+    }
+
     function MachineView({ state, onUnpaired }) {
       const [src, setSrc] = useState(null);
       const [error, setError] = useState(null);
       const [vm, setVm] = useState("");
+      const [tab, setTab] = useState("sessions");
       const vms = useVms(!state.dev);
       const load = useCallback(async () => {
         setError(null);
@@ -133,22 +291,27 @@ window.__ModuleLoader__.load({
         await api("POST", "/unpair", {});
         onUnpaired();
       };
+      const openOn = name => { setVm(name === "idea-dsh" ? "" : name); setTab("sessions"); };
+      const tabButton = (id, label) => h("button", { type: "button", role: "tab", className: "idea-tab", "aria-selected": tab === id ? "true" : "false", onClick: () => setTab(id) }, label);
       return h("div", { className: "idea-root" },
         h("div", { className: "idea-bar" },
           h("span", { className: "idea-name" }, "idea"),
+          h("div", { className: "idea-tabs", role: "tablist" }, tabButton("sessions", "Sessions"), tabButton("team", "Team")),
           h("span", { className: "idea-sub idea-grow" }, state.host || state.url || ""),
-          workers.length > 0
+          tab === "sessions" && workers.length > 0
             ? h("select", { className: "idea-input idea-vm", value: vm, onChange: e => setVm(e.target.value), title: "Which VM to show" },
                 h("option", { value: "" }, "idea-dsh · main"),
                 workers.map(w => h("option", { key: w.name, value: w.name, disabled: !w.ready }, vmLabel(w, vms.workerSlots))))
             : null,
-          h("button", { type: "button", className: "idea-btn", onClick: load }, "Reload"),
+          tab === "sessions" ? h("button", { type: "button", className: "idea-btn", onClick: load }, "Reload") : null,
           state.dev ? null : h("button", { type: "button", className: "idea-btn", onClick: unpair }, "Disconnect")),
-        error
-          ? h("div", { className: "idea-center idea-stack" }, h(ErrorLine, { error }), h("button", { type: "button", className: "idea-btn", onClick: load }, "Try again"))
-          : src
-            ? h("iframe", { className: "idea-frame", src, title: "idea machine", allow: "clipboard-read; clipboard-write" })
-            : h("div", { className: "idea-center" }, h("p", { className: "idea-hint" }, "Connecting to the machine…")));
+        h(TeamView, { visible: tab === "team", onOpen: openOn }),
+        h("div", { className: tab === "sessions" ? "idea-team" : "idea-hide", style: { flexDirection: "column" } },
+          error
+            ? h("div", { className: "idea-center idea-stack" }, h(ErrorLine, { error }), h("button", { type: "button", className: "idea-btn", onClick: load }, "Try again"))
+            : src
+              ? h("iframe", { className: "idea-frame", src, title: "idea machine", allow: "clipboard-read; clipboard-write" })
+              : h("div", { className: "idea-center" }, h("p", { className: "idea-hint" }, "Connecting to the machine…"))));
     }
 
     function IdeaPanel() {
