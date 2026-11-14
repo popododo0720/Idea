@@ -29,7 +29,7 @@ test('the FORWARD allow-list admits exactly the panel calls', () => {
   const allowed = (method, path) => FORWARD.some(([m, re]) => m === method && re.test(path))
   for (const [m, p] of [
     ['GET', '/status'], ['POST', '/projects'], ['POST', '/tasks'], ['GET', '/tasks/abc-123'],
-    ['POST', '/tasks/abc-123/retry'], ['POST', '/tasks/abc/cancel'], ['PUT', '/keys'], ['GET', '/devices'],
+    ['POST', '/tasks/abc-123/retry'], ['POST', '/tasks/abc/cancel'], ['POST', '/nodes/join-code'], ['PUT', '/keys'], ['GET', '/devices'],
     ['GET', '/vms'], ['GET', '/git/repos'], ['GET', '/git/repos/owner/name/pulls/7'], ['GET', '/git/a.b/c_d-e'],
     ['POST', '/git/repos/owner/my.repo/pulls/42/merge'], ['DELETE', '/devices/0123456789ab'],
   ]) assert.ok(allowed(m, p), `${m} ${p} should be allowed`)
@@ -40,6 +40,7 @@ test('the FORWARD allow-list admits exactly the panel calls', () => {
     ['GET', '/git/../keys'], ['GET', '/git/repos/../../keys'], ['GET', '/git/a..b'], ['GET', '/git/a/%2e%2e/b'],
     ['GET', '/git/' + 'a'.repeat(301)], ['GET', '/git/a?b'], ['POST', '/git/repos/o/r/pulls/1'],
     ['POST', '/git/repos/o/r/pulls/x/merge'], ['POST', '/git/repos/o/r/pulls/1/merge/x'], ['PATCH', '/status'],
+    ['GET', '/nodes/join-code'], ['POST', '/nodes/join'], ['POST', '/nodes/join-code/x'], ['PUT', '/nodes/join-code'],
     ['GET', '/pair'], ['POST', '/pair'], ['GET', 'status'], ['GET', '//status'],
   ]) assert.ok(!allowed(m, p), `${m} ${p} should be refused`)
 })
@@ -374,6 +375,19 @@ test('allowed calls are forwarded with the device token, over the pinned connect
   r = await h.call('GET', '/idea/v1/tasks/teapot')
   assert.deepEqual([r.status, r.headers['content-type'], r.text], [418, 'text/plain', 'short and stout'], 'the machine answer passes through')
   assert.equal((await h.call('DELETE', '/idea/v1/devices/0123456789ab')).status, 204)
+})
+
+test('a join code is asked of the machine with the device token, over the pinned connection', { skip: noOpenssl }, async t => {
+  const pair = selfSigned('machine')
+  const machine = await fakeMachine(t, pair)
+  const h = await plugin(t)
+  await paired(h, machine)
+  const r = await h.call('POST', '/idea/v1/nodes/join-code', { json: {} })
+  assert.equal(r.status, 200)
+  assert.equal(r.json.method, 'POST')
+  assert.equal(r.json.url, '/api/v1/nodes/join-code')
+  assert.equal(machine.seen.at(-1).auth, 'Bearer tok-device-secret')
+  assert.equal((await h.call('POST', '/idea/v1/nodes/join', { json: { code: 'x' } })).status, 404, 'the open join call is not forwarded')
 })
 
 test('a machine presenting another certificate is refused before the token is sent', { skip: noOpenssl }, async t => {

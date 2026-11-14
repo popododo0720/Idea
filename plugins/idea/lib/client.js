@@ -856,11 +856,41 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
         bar, h("div", { className: "idea-git" }, side, h(DiffPane, { diff })));
     }
 
+    // "Add a node": a join code for booting a second machine from the ISO.
+    function AddNode({ state, onClose }) {
+      const [info, setInfo] = useState(null);
+      const [error, setError] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const issue = async () => {
+        setBusy(true); setError(null);
+        try { setInfo(await api("POST", "/v1/nodes/join-code", {})); } catch (err) { setError(err); }
+        setBusy(false);
+      };
+      const address = (state.url || "").replace(/^https:\/\//, "");
+      return h("div", { className: "idea-center" },
+        h("div", { className: "idea-stack" },
+          h("div", null,
+            h("h1", { style: { fontSize: "18px", margin: "0 0 4px" } }, "Add a node"),
+            h("p", { className: "idea-hint" }, "Boot another blank machine from the idea ISO, choose \"Join an existing machine\" on its install page and enter the address and the join code. It joins as an extra node and adds room for worker VMs. The code works once, for 30 minutes.")),
+          h(ErrorLine, { error }),
+          info
+            ? h("div", { className: "idea-stack" },
+                h("div", { className: "idea-field" }, h("span", { className: "idea-label" }, "Join code"), h("code", { className: "idea-input", "data-testid": "join-code" }, info.code)),
+                h("div", { className: "idea-field" }, h("span", { className: "idea-label" }, "Address"), h("code", { className: "idea-input" }, address)),
+                state.fingerprint ? h("div", { className: "idea-field" }, h("span", { className: "idea-label" }, "Certificate fingerprint (optional check)"), h("code", { className: "idea-input", style: { wordBreak: "break-all" } }, state.fingerprint)) : null,
+                h("p", { className: "idea-hint" }, "Valid until " + timeOf(info.expiresAt) + ", single use."))
+            : null,
+          h("div", { style: { display: "flex", gap: "8px" } },
+            h("button", { type: "button", className: "idea-btn idea-btn-primary", disabled: busy, onClick: issue }, info ? "New code" : "Get a join code"),
+            h("button", { type: "button", className: "idea-btn", onClick: onClose }, "Close"))));
+    }
+
     function MachineView({ state, onUnpaired }) {
       const [src, setSrc] = useState(null);
       const [error, setError] = useState(null);
       const [vm, setVm] = useState("");
       const [tab, setTab] = useState("sessions");
+      const [adding, setAdding] = useState(false);
       const vms = useVms(!state.dev);
       const load = useCallback(async () => {
         setError(null);
@@ -890,11 +920,13 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
                 ],
               })
             : null,
+          tab === "sessions" && !state.dev ? h("button", { type: "button", className: "idea-btn", onClick: () => setAdding(true) }, "Add a node") : null,
           tab === "sessions" ? h("button", { type: "button", className: "idea-btn", onClick: load }, "Reload") : null,
           state.dev ? null : h("button", { type: "button", className: "idea-btn", onClick: unpair }, "Disconnect")),
+        adding ? h(AddNode, { state, onClose: () => setAdding(false) }) : null,
         h(TeamView, { visible: tab === "team", onOpen: openOn }),
         h(GitView, { visible: tab === "git" }),
-        h("div", { className: tab === "sessions" ? "idea-team" : "idea-hide", style: { flexDirection: "column" } },
+        h("div", { className: tab === "sessions" && !adding ? "idea-team" : "idea-hide", style: { flexDirection: "column" } },
           error
             ? h("div", { className: "idea-center idea-stack" }, h(ErrorLine, { error }), h("button", { type: "button", className: "idea-btn", onClick: load }, "Try again"))
             : src

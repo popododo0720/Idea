@@ -26,13 +26,14 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "create", "delete"]
-  # Model keys (from the dsh panel), paired devices, the API certificate.
+  # Model keys (from the dsh panel), paired devices, the API certificate, the
+  # join code of a node to be added (join.go).
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["create"]
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["idea-model-keys", "idea-devices", "idea-api-tls"]
+    resourceNames: ["idea-model-keys", "idea-devices", "idea-api-tls", "idea-join"]
     verbs: ["get", "update"]
   # What must not be published (publish.go); put in place by the owner.
   - apiGroups: [""]
@@ -106,8 +107,8 @@ subjects:
     name: idea-controller
     namespace: idea-system
 ---
-# The setup code and admin configuration the machine planted at install time
-# (images/talos/setup). Read-only, that one Secret.
+# The setup code, admin configuration and worker configuration the machine
+# planted at install time (images/talos/setup). Read-only, that one Secret.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

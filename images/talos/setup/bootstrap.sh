@@ -7,6 +7,18 @@ set -eu
 log() { echo "idea: $*"; }
 t() { /bin/talosctl --talosconfig /etc/idea/talosconfig -e 127.0.0.1 -n 127.0.0.1 "$@"; }
 
+# An extra node (setup.sh, join): it has no admin access and nothing to
+# bootstrap. Only the way to the existing machine stays on its console.
+if [ -s /etc/idea/worker ]; then
+  while :; do
+    log "=============================================================="
+    log "extra node of the idea machine at $(cat /etc/idea/worker)"
+    log "its setup page and setup code are on that machine"
+    log "=============================================================="
+    sleep 600
+  done
+fi
+
 [ -s /etc/idea/talosconfig ] || {
   log "talosconfig not mounted yet"
   sleep 5

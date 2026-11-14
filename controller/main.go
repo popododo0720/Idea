@@ -134,6 +134,8 @@ type Controller struct {
 	fj    *Forgejo
 	store *Store
 	dsh   *dshClient
+	// joinMu serializes join code issue and use (join.go).
+	joinMu sync.Mutex
 	// Worker VMs (workers.go); tasks run there.
 	workers *workerPool
 	// Repository copies of projects (projects.go): "" done, else what to show.

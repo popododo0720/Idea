@@ -239,6 +239,7 @@ func (c *Controller) apiHandler() http.Handler {
 	})
 
 	authed := http.NewServeMux()
+	c.registerJoinRoutes(mux, authed)
 
 	authed.HandleFunc("GET /api/v1/status", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
