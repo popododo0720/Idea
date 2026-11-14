@@ -54,6 +54,7 @@ type workerPool struct {
 	// Team members on each VM (team.go), from the VMs' own reports.
 	teamLoad map[string]int
 	reserved []reservation
+	placeMu  sync.Mutex // serializes team placements (team.go)
 }
 
 func newWorkerPool(c *Controller) *workerPool {

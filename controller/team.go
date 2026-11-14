@@ -34,9 +34,8 @@ const (
 	// Shared token the VMs' team plugins present to each other and here.
 	teamSecret = "idea-team"
 	// A placement holds a slot until the VM's own report includes the new
-	// teammate (the next report after this long), or at most reserveMax.
-	reserveSettle = 30 * time.Second
-	reserveMax    = 2 * time.Minute
+	// teammate, or at most reserveMax.
+	reserveMax = 2 * time.Minute
 	// At most this many placements wait for their teammate at once.
 	maxReserved = 8
 )
@@ -109,10 +108,22 @@ func (p *workerPool) refreshTeamLoad(ctx context.Context, vms []workerVM) {
 			load[vm] = n
 		}
 	}
+	// A VM reporting more working teammates than before has taken up that
+	// many of its placements: those are counted in its report now.
+	taken := map[string]int{}
+	for vm, n := range load {
+		if d := n - p.teamLoad[vm]; d > 0 {
+			taken[vm] = d
+		}
+	}
 	p.teamLoad = load
 	kept := p.reserved[:0]
 	for _, r := range p.reserved {
-		if time.Since(r.when) < reserveSettle {
+		if taken[r.vm] > 0 {
+			taken[r.vm]--
+			continue
+		}
+		if time.Since(r.when) < reserveMax {
 			kept = append(kept, r)
 		}
 	}
@@ -202,6 +213,9 @@ func (c *Controller) handleTeamPlacement(w http.ResponseWriter, r *http.Request)
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
+	// One placement at a time: count, pick and reserve together.
+	c.workers.placeMu.Lock()
+	defer c.workers.placeMu.Unlock()
 	vms, replicas, err := c.workers.list(ctx)
 	if err != nil {
 		writeError(w, 500, "worker VMs: "+err.Error())
