@@ -31,7 +31,11 @@ TOOLS="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/idea-ci-tools"
 # added, never lower them to make a change pass.
 GO_COVERAGE_FLOOR=55
 export PATH="$TOOLS/go/bin:$TOOLS/bin:$PWD/node_modules/.bin:$PATH"
-export GOPATH="$TOOLS/gopath" GOCACHE="$TOOLS/gocache" GOLANGCI_LINT_CACHE="$TOOLS/golangci-cache" GOFLAGS=-mod=mod
+export GOPATH="$TOOLS/gopath" GOCACHE="$TOOLS/gocache" GOLANGCI_LINT_CACHE="$TOOLS/golangci-cache"
+# -modcacherw: the runner deletes the job's temp dir afterwards, and Go makes
+# its module cache read-only by default. GOMEMLIMIT keeps the Go tools inside
+# the runner's 1 GiB.
+export GOFLAGS="-mod=mod -modcacherw" GOMEMLIMIT="${GOMEMLIMIT:-768MiB}"
 
 step() { printf '\n== %s\n' "$*"; }
 die() {

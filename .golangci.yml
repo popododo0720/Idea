@@ -1,7 +1,7 @@
 # golangci-lint for the controller (controller/). Run by scripts/ci.sh.
 version: "2"
 run:
-  timeout: 5m
+  timeout: 15m # a cold cache on the 2-CPU runner takes longer than 5m
 linters:
   default: standard # errcheck, govet, ineffassign, staticcheck, unused
   enable:
