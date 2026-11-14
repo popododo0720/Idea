@@ -260,7 +260,7 @@ export function apply(ctx) {
     try {
       r = await call(p.url, method, path, { body, token: p.token, pin: p.cert })
     } catch (e) {
-      throw new Error(`could not reach the machine: ${e.message}`)
+      throw new Error(`could not reach the machine: ${e.message}`, { cause: e })
     }
     if (signal?.aborted) throw new Error('cancelled')
     let value = null
