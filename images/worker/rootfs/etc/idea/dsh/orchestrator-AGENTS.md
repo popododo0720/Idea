@@ -45,5 +45,3 @@ issues:
   work. `team_list` shows who is working; `team_stop` ends a teammate.
 - They still deliver through branches and pull requests, which are tested
   and merged as usual. Do not write the code here yourself.
-- dsh's own teammates (spawn_teammate) run inside this dsh, not on worker
-  VMs: use them only for small helpers, never for the project's work.
