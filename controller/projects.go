@@ -12,6 +12,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -117,13 +119,10 @@ func (c *Controller) createProject(ctx context.Context, name, description, seed,
 func (c *Controller) reconcileProject(ctx context.Context, p project) error {
 	org, name := c.cfg.Org, p.Name
 	if p.Import != "" {
-		// Copied once, when the repository does not exist yet.
-		created, err := c.fj.ImportRepo(ctx, org, name, p.Import, p.Description)
-		if err != nil {
-			return fmt.Errorf("import %s: %w", p.Import, err)
-		}
-		if created {
-			slog.Info("repository imported", "repo", org+"/"+name, "from", p.Import)
+		// Copied once, when the repository does not exist yet, outside this
+		// loop: a large copy must not hold up the other projects.
+		if msg, busy := c.importing(org, name, p); busy {
+			return errors.New(msg)
 		}
 	}
 	repo, err := c.fj.EnsureRepo(ctx, org, name)
@@ -159,6 +158,44 @@ func (c *Controller) reconcileProject(ctx context.Context, p project) error {
 		slog.Info("webhook created", "repo", org+"/"+name)
 	}
 	return nil
+}
+
+// importing starts or follows the copy of a project's repository. It
+// reports true (with what to show) while the copy runs or after it failed.
+func (c *Controller) importing(org, name string, p project) (string, bool) {
+	c.importMu.Lock()
+	defer c.importMu.Unlock()
+	if c.imports == nil {
+		c.imports = map[string]string{}
+	}
+	key := org + "/" + name
+	if msg, ok := c.imports[key]; ok {
+		if msg == "" {
+			return "", false // copied (or there already): carry on with the repository
+		}
+		if strings.HasPrefix(msg, "failed:") {
+			delete(c.imports, key) // try again on the next pass
+		}
+		return msg, true
+	}
+	c.imports[key] = "copying from " + p.Import
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+		defer cancel()
+		created, err := c.fj.ImportRepo(ctx, org, name, p.Import, p.Description)
+		c.importMu.Lock()
+		defer c.importMu.Unlock()
+		if err != nil {
+			slog.Warn("repository import", "repo", key, "err", err.Error())
+			c.imports[key] = "failed: copy from " + p.Import + ": " + err.Error()
+			return
+		}
+		if created {
+			slog.Info("repository imported", "repo", key, "from", p.Import)
+		}
+		c.imports[key] = ""
+	}()
+	return c.imports[key], true
 }
 
 // seedDir resolves an example name to its directory in the image.

@@ -372,6 +372,13 @@ func (p *workerPool) nodePorts(ctx context.Context) map[string]int32 {
 	return out
 }
 
+// Note says why no VM was added last time.
+func (p *workerPool) Note() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.note
+}
+
 // isWorkerVM reports whether name is one of the pool's VM names.
 func isWorkerVM(name string) bool {
 	n, ok := strings.CutPrefix(name, workerSet+"-")

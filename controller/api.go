@@ -291,7 +291,7 @@ func (c *Controller) apiHandler() http.Handler {
 		writeJSON(w, 200, map[string]any{
 			"main":    map[string]any{"name": "idea-dsh", "ready": err == nil, "nodePort": dshNodePort},
 			"workers": vms, "workerSlots": c.cfg.WorkerSlots, "maxWorkers": c.cfg.MaxWorkers,
-			"note": c.workers.note,
+			"note": c.workers.Note(),
 		})
 	})
 

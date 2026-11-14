@@ -105,7 +105,7 @@ func (c *Controller) agentMux(mux *http.ServeMux) {
 		}
 		writeJSON(w, 200, map[string]any{
 			"projects": projects, "tasks": tasks, "workers": vms,
-			"workerSlots": c.cfg.WorkerSlots, "maxWorkers": c.cfg.MaxWorkers, "note": c.workers.note,
+			"workerSlots": c.cfg.WorkerSlots, "maxWorkers": c.cfg.MaxWorkers, "note": c.workers.Note(),
 		})
 	})
 }

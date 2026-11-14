@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -123,6 +124,9 @@ type Controller struct {
 	dsh   *dshClient
 	// Worker VMs (workers.go); tasks run there.
 	workers *workerPool
+	// Repository copies of projects (projects.go): "" done, else what to show.
+	importMu sync.Mutex
+	imports  map[string]string
 }
 
 func b64(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
