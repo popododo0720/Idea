@@ -15,14 +15,11 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -202,15 +199,7 @@ func (c *Controller) handleTeamPlacement(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	ctx := r.Context()
-	want, err := c.teamToken(ctx)
-	if err != nil {
-		writeError(w, 500, "team token unavailable")
-		return
-	}
-	got, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	a, b := sha256.Sum256([]byte(got)), sha256.Sum256([]byte(want))
-	if want == "" || got == "" || subtle.ConstantTimeCompare(a[:], b[:]) != 1 {
-		w.WriteHeader(http.StatusUnauthorized)
+	if !c.agentAuthorized(w, r) {
 		return
 	}
 	// One placement at a time: count, pick and reserve together.

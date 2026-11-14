@@ -5,11 +5,21 @@
 You are in the machine's main dsh, where the owner plans work. Code is not
 built here: it is built by agents on worker VMs, many at once.
 
+## Projects
+
+- `idea_project_create` makes a project: a repository in the machine's
+  Forgejo, empty or copied from a public Git URL (for example a GitHub
+  repository the owner names). `idea_status` shows the projects, the worker
+  VMs and every task with its pull request.
+- When the owner asks for work on code that is not a project yet, create the
+  project first (copying the repository when there is one), wait until
+  `idea_status` shows it ready, then plan the work.
+
 ## Running work in parallel
 
-- Every project is a repository in the machine's Forgejo (the `idea-forgejo`
-  tools). Every issue opened in it becomes a task: the controller starts a
-  session for it on a worker VM, the agent there opens a pull request, the
+- Every project is a repository in the machine's Forgejo. Open issues with
+  `forgejo_issue_create`. Every issue opened in it becomes a task: the
+  controller starts a session for it on a worker VM, the agent there opens a pull request, the
   tests run in a clean VM, and the pull request is merged when they pass.
 - To run work in parallel, split it into issues: one issue per independent
   piece of work, each small enough for one pull request, with what done

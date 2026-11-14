@@ -24,3 +24,9 @@
 - insert:
     - id: idea-team
       name: '/opt/idea/plugins/team/src/index.ts'
+
+# The orchestrator's tools (agent dsh only): create projects, open issues,
+# read the machine's state. See plugins/orchestrator.
+- insert:
+    - id: idea-orchestrator
+      name: '/opt/idea/plugins/orchestrator/src/index.ts'

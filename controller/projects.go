@@ -37,6 +37,7 @@ type project struct {
 	Repo        string `json:"repo"` // org/name in Forgejo
 	Description string `json:"description,omitempty"`
 	Seed        string `json:"seed,omitempty"`
+	Import      string `json:"import,omitempty"` // public Git URL copied once
 	Ready       bool   `json:"ready"`
 	Message     string `json:"message,omitempty"`
 	URL         string `json:"url"`
@@ -47,6 +48,7 @@ func (c *Controller) projectOf(u *unstructured.Unstructured) project {
 	p.Repo = c.cfg.Org + "/" + p.Name
 	p.Description, _, _ = unstructured.NestedString(u.Object, "spec", "description")
 	p.Seed, _, _ = unstructured.NestedString(u.Object, "spec", "seed")
+	p.Import, _, _ = unstructured.NestedString(u.Object, "spec", "import")
 	p.Ready, _, _ = unstructured.NestedBool(u.Object, "status", "ready")
 	p.Message, _, _ = unstructured.NestedString(u.Object, "status", "message")
 	p.URL = "https://" + c.cfg.Host + "/git/" + p.Repo
@@ -83,10 +85,17 @@ func (c *Controller) projectForRepo(ctx context.Context, fullName string) (*proj
 	return &p, nil
 }
 
-func (c *Controller) createProject(ctx context.Context, name, description, seed string) (project, error) {
+// importURL is a public Git repository a project may be copied from: https,
+// no credentials, no query. Forgejo itself refuses private addresses.
+var importURL = regexp.MustCompile(`^https://[A-Za-z0-9.-]+(:[0-9]+)?/[A-Za-z0-9._~/-]+$`)
+
+func (c *Controller) createProject(ctx context.Context, name, description, seed, from string) (project, error) {
 	spec := map[string]any{"description": description}
 	if seed != "" {
 		spec["seed"] = seed
+	}
+	if from != "" {
+		spec["import"] = from
 	}
 	obj := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "idea.dev/v1alpha1",
@@ -107,6 +116,16 @@ func (c *Controller) createProject(ctx context.Context, name, description, seed 
 // collaborator, the webhook in place.
 func (c *Controller) reconcileProject(ctx context.Context, p project) error {
 	org, name := c.cfg.Org, p.Name
+	if p.Import != "" {
+		// Copied once, when the repository does not exist yet.
+		created, err := c.fj.ImportRepo(ctx, org, name, p.Import, p.Description)
+		if err != nil {
+			return fmt.Errorf("import %s: %w", p.Import, err)
+		}
+		if created {
+			slog.Info("repository imported", "repo", org+"/"+name, "from", p.Import)
+		}
+	}
 	repo, err := c.fj.EnsureRepo(ctx, org, name)
 	if err != nil {
 		return fmt.Errorf("repo: %w", err)

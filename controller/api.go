@@ -322,7 +322,7 @@ func (c *Controller) apiHandler() http.Handler {
 			writeError(w, 400, "description is too long")
 			return
 		}
-		p, err := c.createProject(r.Context(), in.Name, strings.TrimSpace(in.Description), in.Seed)
+		p, err := c.createProject(r.Context(), in.Name, strings.TrimSpace(in.Description), in.Seed, "")
 		if apierrors.IsAlreadyExists(err) {
 			writeError(w, 409, "a project with that name exists")
 			return

@@ -123,6 +123,30 @@ func (f *Forgejo) EnsureRepo(ctx context.Context, org, name string) (*Repo, erro
 	return &r, nil
 }
 
+// ImportRepo copies a public Git repository into a new repository of the
+// organisation (code and history; not a mirror). It does nothing when the
+// repository exists already.
+func (f *Forgejo) ImportRepo(ctx context.Context, org, name, from, description string) (bool, error) {
+	err := f.do(ctx, "GET", "/repos/"+org+"/"+name, nil, nil)
+	if err == nil {
+		return false, nil
+	}
+	if !isStatus(err, 404) {
+		return false, err
+	}
+	// Copying takes a while for a large repository.
+	slow := *f
+	slow.http = &http.Client{Timeout: 10 * time.Minute, Transport: f.http.Transport}
+	err = slow.do(ctx, "POST", "/repos/migrate", map[string]any{
+		"clone_addr": from, "repo_owner": org, "repo_name": name, "service": "git",
+		"mirror": false, "private": false, "description": description,
+	}, nil)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 type SeedFile struct {
 	Path    string
 	Content []byte
