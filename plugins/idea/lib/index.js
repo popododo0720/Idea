@@ -278,6 +278,39 @@ export function apply(ctx) {
       return
     }
 
+    // The owner's team controls: stop one teammate (asked of the lead's VM,
+    // the agent dsh), or delete a team (the lead's VM first, then every
+    // worker VM forgets it too).
+    if ((sub === '/team/stop' || sub === '/team/delete') && method === 'POST') {
+      const input = await readJson(req)
+      if (typeof input.team !== 'string' || !/^[0-9a-f]{8}$/.test(input.team)) { sendJson(res, 400, { error: 'invalid team' }); return }
+      if (!process.env.IDEA_DEV_DSH_LOGIN && !(await loadPairing())) { sendJson(res, 409, { error: 'not paired' }); return }
+      const ask = async (vm, path, value) => {
+        const r = await viewOf(vm).json('POST', path, value)
+        let out = {}
+        try { out = JSON.parse(r.text || '{}') } catch { /* not JSON */ }
+        if (r.status !== 200) throw Object.assign(new Error(out.error || `HTTP ${r.status}`), { status: r.status })
+        return out
+      }
+      try {
+        if (sub === '/team/stop') {
+          if (typeof input.name !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(input.name)) { sendJson(res, 400, { error: 'invalid name' }); return }
+          await ask('', '/idea-team/owner/stop', { team: input.team, name: input.name })
+          sendJson(res, 200, { ok: true })
+          return
+        }
+        await ask('', '/idea-team/owner/delete', { team: input.team })
+        const errors = []
+        for (const vm of await workerVms()) {
+          try { await ask(vm, '/idea-team/owner/delete', { team: input.team }) } catch (e) { if (e.status !== 404) errors.push({ vm, error: e.message }) }
+        }
+        sendJson(res, 200, { ok: true, errors })
+      } catch (e) {
+        sendJson(res, e.status && e.status < 500 ? e.status : 502, { error: e.message })
+      }
+      return
+    }
+
     if (sub === '/pair' && method === 'POST') {
       const input = await readJson(req)
       const base = normalizeUrl(input.url)
