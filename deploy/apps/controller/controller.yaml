@@ -35,7 +35,7 @@ spec:
             - name: IDEA_HOST
               value: ${IDEA_HOST:=idea.internal}
             - name: WORKER_IMAGE
-              value: ghcr.io/popododo0720/idea-worker:0.15.2
+              value: ghcr.io/popododo0720/idea-worker:0.15.3
             # actions: wait for the Forgejo Actions result on the pull request.
             # controller: run the tests in a clean Kata pod ourselves.
             - name: GATE_MODE

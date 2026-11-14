@@ -416,15 +416,22 @@ export function apply(ctx: any) {
       const me = memberOf(exec)
       const t = me.local && state.led[me.local.team]
       if (!me.local || me.local.name !== LEAD || !t) throw new Error('only the team lead stops teammates')
-      const m = t.members.find(x => x.name === args.name)
-      if (!m) throw new Error(`no teammate ${JSON.stringify(args.name)}`)
-      const r = await peer(m.vm, 'POST', '/idea-team/stop', { team: me.local.team, name: m.name }, exec.signal)
-      if (r.status !== 200 && r.status !== 404) throw new Error(`${m.vm}: ${r.value?.error ?? `HTTP ${r.status}`}`)
-      t.members = t.members.filter(x => x !== m)
-      await broadcastRoster(me.local.team, [m.vm])
-      return { text: `Stopped ${m.name}.` }
+      await stopMember(me.local.team, String(args.name), exec.signal)
+      return { text: `Stopped ${args.name}.` }
     },
   }))
+
+  /** The lead's side of stopping a teammate (team_stop, or the owner from the panel). */
+  async function stopMember(team: string, name: string, signal?: AbortSignal) {
+    const t = state.led[team]
+    if (!t) throw Object.assign(new Error(`team ${team} is not led from ${SELF}`), { status: 404 })
+    const m = t.members.find(x => x.name === name)
+    if (!m) throw Object.assign(new Error(`no teammate ${JSON.stringify(name)}`), { status: 404 })
+    const r = await peer(m.vm, 'POST', '/idea-team/stop', { team, name: m.name }, signal)
+    if (r.status !== 200 && r.status !== 404) throw new Error(`${m.vm}: ${r.value?.error ?? `HTTP ${r.status}`}`)
+    t.members = t.members.filter(x => x !== m)
+    await broadcastRoster(team, [m.vm])
+  }
 
   // ------------------------------------------------------------- peer API
 
@@ -536,6 +543,18 @@ export function apply(ctx: any) {
     return { status: 200, value: { ok: true } }
   }
 
+  /** Drop a team's messages from this VM's log. */
+  async function forgetLog(team: string) {
+    let text = ''
+    try { text = await readFile(logFile(), 'utf8') } catch { return }
+    const keep = text.split('\n').filter(line => {
+      if (!line) return false
+      try { return JSON.parse(line).team !== team } catch { return false }
+    })
+    await writeFile(logFile() + '.tmp', keep.map(l => l + '\n').join(''), { mode: 0o600 })
+    await rename(logFile() + '.tmp', logFile())
+  }
+
   async function readLog(team: string | null): Promise<LogLine[]> {
     let text = ''
     try { text = await readFile(logFile(), 'utf8') } catch { return [] }
@@ -569,6 +588,67 @@ export function apply(ctx: any) {
           const err = e as { status?: number, message?: string }
           if (!res.headersSent) send(res, err.status || 500, { error: err.status ? err.message : `failed: ${err.message ?? 'error'}` })
           else res.destroy()
+        }
+      },
+    }), `idea: ${path}`)
+  }
+
+  // The owner's controls in the idea panel (signed in to this dsh; never a
+  // peer): stop one teammate (on the lead's VM), or delete a team (on every
+  // VM: its members here stop, and its roster and messages are forgotten).
+  // The agents' sessions stay, with everything they did.
+  const owner: Record<string, (v: any) => Promise<Reply>> = {
+    '/idea-team/owner/stop': async v => {
+      if (!TEAM.test(v?.team) || !NAME.test(v?.name) || v.name === LEAD) return { status: 400, value: { error: 'invalid team or name' } }
+      await load()
+      await stopMember(v.team, v.name, AbortSignal.timeout(30_000))
+      const lead = state.led[v.team]?.lead
+      if (lead && await running(lead.session)) {
+        // Only while the lead is working: a note must not start a turn of its own.
+        try { await deliver(lead.session, `[team ${v.team}] The owner stopped ${v.name}. Do not wait for it.`) } catch { /* note only */ }
+      }
+      return { status: 200, value: { ok: true } }
+    },
+    '/idea-team/owner/delete': async v => {
+      if (!TEAM.test(v?.team)) return { status: 400, value: { error: 'invalid team' } }
+      await load()
+      const team: string = v.team
+      // The lead also stops the members on VMs the panel may not reach.
+      for (const m of state.led[team]?.members ?? []) {
+        try { await peer(m.vm, 'POST', '/idea-team/stop', { team, name: m.name }, AbortSignal.timeout(15_000)) } catch { /* VM away */ }
+      }
+      let stopped = 0
+      for (const [session, l] of Object.entries(state.local)) {
+        if (l.team !== team) continue
+        delete state.local[session]
+        if (l.name !== LEAD) {
+          stopped++
+          try { ctx.sessionController.cancel({ sessionId: session }) } catch { /* not working */ }
+        }
+      }
+      delete state.led[team]
+      delete state.rosters[team]
+      for (const k of Object.keys(state.stopped)) if (k.startsWith(team + '/')) delete state.stopped[k]
+      await save()
+      await forgetLog(team)
+      return { status: 200, value: { ok: true, stopped } }
+    },
+  }
+  for (const [path, handle] of Object.entries(owner)) {
+    ctx.effect(() => ctx.webServer.register({
+      kind: 'exact',
+      path,
+      handler: async (req: IncomingMessage, res: ServerResponse) => {
+        if (req.method !== 'POST') { send(res, 405, { error: 'POST only' }); return }
+        const rejection = ctx.connection.requestRejection(req)
+        if (rejection !== undefined) { res.statusCode = rejection; res.end(); return }
+        if (!String(req.headers['content-type'] || '').startsWith('application/json')) { send(res, 415, { error: 'JSON only' }); return }
+        try {
+          const r = await handle(await body(req))
+          send(res, r.status, r.value)
+        } catch (e) {
+          const err = e as { status?: number, message?: string }
+          if (!res.headersSent) send(res, err.status || 500, { error: err.message ?? 'failed' })
         }
       },
     }), `idea: ${path}`)

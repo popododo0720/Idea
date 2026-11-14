@@ -10,10 +10,11 @@ The agents run on the idea machine. This plugin only shows them.
 ## Install
 
 ```sh
-dsh plugin add github:popododo0720/Idea#path:/plugins/idea
+dsh plugin --profile <your profile> add "github:popododo0720/Idea#path:/plugins/idea"
 ```
 
-Restart dsh, open **idea** in the sidebar, and enter the machine's address
+or add the same address on the Plugins page. Running it again updates the
+plugin to the latest version. Restart dsh, open **idea** in the sidebar, and enter the machine's address
 (`https://<machine>:30443`) and the setup code shown on its console. That pairs
 this dsh once; the code is not needed again.
 
@@ -34,7 +35,10 @@ idea panel          ──/idea/*──▶ this plugin ──HTTPS, pinned──
   whether it is working, its last message; and the task agents with their
   issue, phase and pull request) next to the messages the agents send each
   other. Picking an agent filters the messages; "Open session" shows that
-  VM's dsh, where the agent's whole session is.
+  VM's dsh, where the agent's whole session is. The owner can stop a
+  teammate or delete a team there (its members stop and its messages are
+  removed; the sessions stay). The panel uses dsh's design tokens, so it
+  follows the dsh theme and font settings.
 - `lib/team-view.js` builds the Team tab: it reads every VM's team log
   (`/idea-team/log`, written by the machine's idea-team plugin) through the
   view proxies, keeps one copy of each message, and asks each member's dsh
