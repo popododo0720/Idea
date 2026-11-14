@@ -18,13 +18,15 @@ STATE="${IDEA_STATE:-/home/idea/state}"
 export DSH_HOME="$STATE/dsh"
 mkdir -p "$DSH_HOME" "$STATE/projects"
 
-# Git: identity, and credentials for Forgejo taken from the environment at
-# use time (the token is never written to disk).
+# Git: identity, and credentials for Forgejo read at use time from the
+# mounted Secret (dsh does not pass *TOKEN* variables on to the shells its
+# agents run, so the environment alone does not reach git there). The token
+# is never copied anywhere else.
 git config --global user.name "${FORGEJO_USER:-idea-worker}"
 git config --global user.email "${FORGEJO_USER:-idea-worker}@idea.internal"
 git config --global init.defaultBranch main
 git config --global credential.helper \
-  '!f() { test "$1" = get || exit 0; echo "username=${FORGEJO_USER:-idea-worker}"; echo "password=${FORGEJO_TOKEN}"; }; f'
+  '!f() { test "$1" = get || exit 0; echo "username=${FORGEJO_USER:-idea-worker}"; t=$(cat /etc/idea/forgejo/token 2>/dev/null || printf %s "$FORGEJO_TOKEN"); echo "password=$t"; }; f'
 
 tls=()
 if [ -f /etc/idea/tls/tls.crt ] && [ -f /etc/idea/tls/tls.key ]; then

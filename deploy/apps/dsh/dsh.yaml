@@ -47,7 +47,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: dsh
-          image: ghcr.io/popododo0720/idea-worker:0.12.1
+          image: ghcr.io/popododo0720/idea-worker:0.12.2
           command: ["/usr/local/bin/idea-dsh"]
           env:
             - name: POD_IP
@@ -103,6 +103,9 @@ spec:
             - name: tls
               mountPath: /etc/idea/tls
               readOnly: true
+            - name: forgejo
+              mountPath: /etc/idea/forgejo
+              readOnly: true
             - name: shm
               mountPath: /dev/shm
             - name: sync
@@ -117,6 +120,14 @@ spec:
         - name: tls
           secret:
             secretName: idea-dsh-tls
+        # The bot's Forgejo token for git (see idea-dsh: the agents' shells
+        # do not get it from the environment).
+        - name: forgejo
+          secret:
+            secretName: idea-worker-forgejo
+            items:
+              - key: token
+                path: token
         - name: shm
           emptyDir:
             medium: Memory
