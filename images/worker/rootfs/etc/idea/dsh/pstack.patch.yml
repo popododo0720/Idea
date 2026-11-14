@@ -3,3 +3,12 @@
 - id: agent-preset-registry
   config:
     default: poteto-mode
+
+# dsh 0.2.2-rc.3 loads its in-process Agent Teams by default, and pstack's
+# root presets refuse to start while they are loaded (pstack delegates on its
+# own). Teams on this machine are plugins/team instead: teammates on worker
+# VMs, not inside this dsh.
+- id: agent-team
+  disabled: true
+- id: tool-agent-team
+  disabled: true

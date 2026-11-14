@@ -38,7 +38,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: dsh
-          image: ghcr.io/popododo0720/idea-worker:0.13.0
+          image: ghcr.io/popododo0720/idea-worker:0.13.1
           command: ["/usr/local/bin/idea-dsh"]
           env:
             - name: POD_IP
