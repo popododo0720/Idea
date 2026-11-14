@@ -80,7 +80,7 @@ rules:
     verbs: ["create"]
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["idea-worker-forgejo", "idea-runner-registration", "idea-sync"]
+    resourceNames: ["idea-worker-forgejo", "idea-runner-registration", "idea-sync", "idea-team"]
     verbs: ["get"]
   - apiGroups: [""]
     resources: ["secrets"]
