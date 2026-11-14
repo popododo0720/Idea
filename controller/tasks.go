@@ -304,7 +304,7 @@ func (c *Controller) startSession(ctx context.Context, t taskView) error {
 			return err
 		}
 		// A fixed id: creating it again (after a crash) returns the same session.
-		session, err = d.createSession(ctx, ws, "idea-"+t.name, fmt.Sprintf("#%d %s", t.issue, t.title))
+		session, err = d.createSession(ctx, ws, "idea-"+t.name, fmt.Sprintf("#%d %s", t.issue, t.title), c.cfg.AgentPreset)
 		if err != nil {
 			return err
 		}

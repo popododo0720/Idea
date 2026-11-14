@@ -316,12 +316,16 @@ type dshState struct {
 // busy reports whether the agent is working or has work queued.
 func (s dshState) busy() bool { return s.Running || len(s.Queue) > 0 }
 
-func (d *dshClient) createSession(ctx context.Context, workspaceID, sessionID, title string) (string, error) {
+func (d *dshClient) createSession(ctx context.Context, workspaceID, sessionID, title, preset string) (string, error) {
 	var out struct {
 		SessionID string `json:"sessionId"`
 	}
-	if err := d.call(ctx, "session/create", map[string]string{"workspaceId": workspaceID, "sessionId": sessionID}, &out); err != nil {
-		return "", err
+	req := map[string]string{"workspaceId": workspaceID, "sessionId": sessionID}
+	if preset != "" {
+		req["agentPreset"] = preset
+	}
+	if err := d.call(ctx, "session/create", req, &out); err != nil {
+		return "", fmt.Errorf("session (preset %q): %w", preset, err)
 	}
 	if err := d.call(ctx, "session/rename", map[string]string{"sessionId": out.SessionID, "title": title}, nil); err != nil {
 		return "", err
