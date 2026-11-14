@@ -24,7 +24,7 @@ Written 2026-11-12, revised 2026-11-13 (preparing the public release: Chrome rep
 | Forgejo Runner | 13.2.1 | GPL-3.0 | code.forgejo.org/forgejo/runner | repository |
 | nginx (unprivileged image) | 1.31.7 | BSD-2-Clause (nginx), image build files Apache-2.0 | github.com/nginxinc/docker-nginx-unprivileged | repository |
 
-## Included in the worker image and the main image
+## Included in the worker image
 
 | Name | Version | License | Source | Checked |
 | --- | --- | --- | --- | --- |

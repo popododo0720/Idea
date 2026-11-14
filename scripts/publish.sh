@@ -7,7 +7,7 @@
 #   publish.sh           publish it
 #
 # Published:
-#   $IMAGE_REPO/idea-worker, idea-main, idea-controller   container images
+#   $IMAGE_REPO/idea-worker, idea-controller   container images
 #   $IMAGE_REPO/idea-installer                            Talos installer with our extensions
 #   $IMAGE_REPO/idea-deploy:<version> and :stable         the deploy/ tree (Flux OCI artifact)
 #   GitHub release v<version>                             the ISO
@@ -33,7 +33,6 @@ cd "$REPO_ROOT"
 installer_tag="$TALOS_VERSION-setup$TALOS_SETUP_VERSION"
 images=(
   "idea-worker:$WORKER_IMAGE_VERSION"
-  "idea-main:$MAIN_IMAGE_VERSION"
   "idea-controller:$CONTROLLER_IMAGE_VERSION"
   "idea-installer:$installer_tag"
 )

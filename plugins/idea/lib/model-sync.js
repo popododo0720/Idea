@@ -10,9 +10,6 @@
 //   - the credentials those sections reference (their `apiKeyEnv` names, plus
 //     `DEEPSEEK_API_KEY`, which the desktop app's DeepSeek sign-in fills),
 //     when this dsh has a value for them,
-//   - the subscription sign-ins (Claude, ChatGPT, Copilot and the other pi-ai
-//     providers, e.g. from the dsh-subscription-login console): the
-//     credential records under the `llm-pi-ai` scope,
 //   - the DeepSeek account sign-in (`deepseek-account-platform/default`: one
 //     long-lived account token, never refreshed), so the machine uses the
 //     same DeepSeek account without an API key.
@@ -21,7 +18,7 @@
 //
 // Settings and keys go through the machine dsh's own Remote API
 // (`settings/replace`, `credentials/set`), exactly what its Models page would
-// do. dsh has no Remote API for records, so sign-ins go to the
+// do. dsh has no Remote API for records, so the sign-in goes to the
 // idea-machine-sync plugin of the machine dsh (`PUT /idea-sync/records`),
 // which keeps a grant it has refreshed since. It runs when the
 // pairing exists at start, after pairing, and whenever this dsh reports a
@@ -34,9 +31,8 @@ const NAMESPACES = ['llm-deepseek', 'llm-pi-ai']
 const ALWAYS = ['DEEPSEEK_API_KEY']
 const DEBOUNCE_MS = 1500
 const REF = /^[A-Za-z_][A-Za-z0-9_]*$/
-const RECORD_SCOPE = 'llm-pi-ai/'
 const DEEPSEEK_ACCOUNT = 'deepseek-account-platform/default'
-const synced = key => key.startsWith(RECORD_SCOPE) || key === DEEPSEEK_ACCOUNT
+const synced = key => key === DEEPSEEK_ACCOUNT
 
 /** Every `apiKeyEnv` string anywhere in a settings value. */
 function keyRefs(value, out = new Set()) {

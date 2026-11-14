@@ -45,6 +45,12 @@ idea panel          ──/idea/*──▶ this plugin ──HTTPS, pinned──
   `credentials/set`), at start, after pairing and whenever a model setting or
   key changes here. It only adds and overwrites; nothing set on the machine
   itself is removed.
+  The DeepSeek account sign-in goes along too (to the machine dsh's
+  idea-machine-sync plugin), so the machine needs no DeepSeek API key.
+- `lib/subscriptions-sync.js` keeps the sign-ins of dsh-plugin-subscriptions
+  (Claude, ChatGPT/Codex, Grok, Copilot, Antigravity) in step with the
+  machine: both sides are merged account by account, the later expiry winning.
+  This plugin installs dsh-plugin-subscriptions (pinned) when it is missing.
 - The pairing (address, certificate, token) is kept in `$DSH_HOME/idea/pairing.json`
   with mode 600. Disconnecting revokes the token on the machine and deletes the file.
 

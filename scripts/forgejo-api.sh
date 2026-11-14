@@ -15,18 +15,19 @@ method="${1:?usage: forgejo-api.sh METHOD PATH [JSON]}"
 path="${2:?usage: forgejo-api.sh METHOD PATH [JSON]}"
 body="${3:-}"
 ns=idea-system
+# Sent from the agent dsh pod (it has node and reaches Forgejo).
 
 {
   kubectl -n "$ns" get secret idea-forgejo-admin -o jsonpath='{.data.username}' | base64 -d; echo
   kubectl -n "$ns" get secret idea-forgejo-admin -o jsonpath='{.data.password}' | base64 -d; echo
   printf '%s\n' "$method" "$path"
   printf '%s' "$body"
-} | kubectl -n "$ns" exec -i deploy/idea-main -- node --input-type=module -e '
+} | kubectl -n idea-work exec -i deploy/idea-dsh -- node --input-type=module -e '
 import { text } from "node:stream/consumers"
 const input = await text(process.stdin)
 const [user, pass, method, path, ...rest] = input.split("\n")
 const body = rest.join("\n")
-const res = await fetch("http://forgejo-http:3000/api/v1" + path, {
+const res = await fetch("http://forgejo-http.idea-system.svc:3000/api/v1" + path, {
   method,
   headers: {
     Authorization: "Basic " + Buffer.from(user + ":" + pass).toString("base64"),

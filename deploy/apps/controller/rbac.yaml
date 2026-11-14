@@ -4,7 +4,7 @@ metadata:
   name: idea-controller
   namespace: idea-system
 ---
-# In its own namespace: Tasks, and the main agent job it starts per task.
+# In its own namespace (idea-system).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -14,7 +14,6 @@ rules:
   - apiGroups: ["idea.dev"]
     resources: ["tasks", "tasks/status", "projects", "projects/status"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
-  # The main agent's log, shown in the dsh panel.
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list"]

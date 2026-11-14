@@ -1,20 +1,16 @@
-// idea-machine-sync: receives subscription sign-ins from the owner's dsh.
+// idea-machine-sync: receives sign-ins from the owner's dsh.
 //
-// The owner signs in to model subscriptions (Claude, ChatGPT, Copilot and the
-// other pi-ai providers) in their own dsh. Those sign-ins are credential
-// records under the `llm-pi-ai` scope, and dsh has no Remote API that writes a
-// record. The idea plugin on the owner's side therefore sends them here, to
+// The owner signs in to the DeepSeek account in their own dsh. That sign-in is
+// a credential record (`deepseek-account-platform/default`, a grant holding one
+// long-lived account token, no refresh), and dsh has no Remote API that writes
+// a record. The idea plugin on the owner's side therefore sends it here, to
 // `PUT /idea-sync/records`, through its logged-in view of this dsh.
 //
 // - Only signed-in callers of this dsh get through (`connection`, the same
 //   check dsh's own routes use).
-// - Only `llm-pi-ai/<provider>` records and the DeepSeek account sign-in
-//   (`deepseek-account-platform/default`, a grant holding one long-lived
-//   account token, no refresh) are accepted; nothing else in the store can be
+// - Only that one record is accepted; nothing else in the store can be
 //   written through this route.
-// - A grant whose access token expires later than the incoming one is kept:
-//   this dsh may have refreshed it since, and an older copy from the owner's
-//   dsh would only undo that.
+// - A grant whose access token expires later than the incoming one is kept.
 // - Record contents are never logged.
 
 //
@@ -106,7 +102,7 @@ async function writeJsonFile(path: string, value: unknown) {
   }
 }
 const MAX_BODY = 256 * 1024
-const KEY = /^llm-pi-ai\/[A-Za-z0-9][A-Za-z0-9._-]{0,63}$|^deepseek-account-platform\/default$/
+const KEY = /^deepseek-account-platform\/default$/
 
 type Rec = { kind: 'grant', payload: unknown } | { kind: 'api-key', key?: string, env?: Record<string, string> }
 
@@ -157,9 +153,8 @@ export function apply(ctx: any) {
     const records = body && typeof body.records === 'object' && body.records !== null ? body.records : undefined
     if (!records) { send(res, 400, { error: 'records missing' }); return }
     const entries = Object.entries(records)
-    if (entries.some(([k, r]) => !KEY.test(k) || !valid(r)
-      || (k.startsWith('deepseek-account-platform/') && (r as Rec).kind !== 'grant'))) {
-      send(res, 400, { error: 'only llm-pi-ai records and the DeepSeek account sign-in are accepted' }); return
+    if (entries.some(([k, r]) => !KEY.test(k) || !valid(r) || (r as Rec).kind !== 'grant')) {
+      send(res, 400, { error: 'only the DeepSeek account sign-in is accepted' }); return
     }
     let written = 0, kept = 0
     for (const [key, rec] of entries) {

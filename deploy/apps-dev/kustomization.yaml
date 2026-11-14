@@ -1,7 +1,6 @@
 # Development fixtures, not part of an installed system: a hand-declared work
-# pod (w1) and a standing main agent pod, for trying things by hand.
+# pod (w1), for trying things by hand.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - worker-test
-  - main

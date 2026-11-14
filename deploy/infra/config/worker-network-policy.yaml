@@ -4,7 +4,7 @@
 # internet but nothing private: not the node, not the API server, not other
 # pods, not the host's networks.
 #
-#   in:  the ingress (noVNC on 6080), the main agent (SSH on 2222)
+#   in:  the ingress (noVNC on 6080)
 #   out: cluster DNS, public internet, Forgejo (the in-cluster Git server)
 #   everything else is dropped (and shows up in Hubble).
 #
@@ -23,14 +23,6 @@ spec:
       toPorts:
         - ports:
             - port: "6080"
-              protocol: TCP
-    - fromEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: idea-system
-            idea.dev/role: main
-      toPorts:
-        - ports:
-            - port: "2222"
               protocol: TCP
   egress:
     - toEndpoints:
