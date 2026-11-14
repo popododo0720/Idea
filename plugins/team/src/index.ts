@@ -28,6 +28,7 @@ import { X509Certificate, createHash, randomBytes, randomUUID, timingSafeEqual }
 import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { lookup } from 'node:dns/promises'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 export const name = 'idea-team'
@@ -86,6 +87,22 @@ async function hasTeamToken(req: IncomingMessage): Promise<boolean> {
   const a = Buffer.from(createHash('sha256').update(got).digest('hex'))
   const b = Buffer.from(createHash('sha256').update(want).digest('hex'))
   return timingSafeEqual(a, b)
+}
+
+/**
+ * Whether a peer request comes from the VM it names. Every VM holds the same
+ * team token, so the token alone cannot tell teammates on different VMs apart;
+ * the pod address can (the in-cluster name resolves to it).
+ */
+async function fromVm(req: IncomingMessage, vm: string): Promise<boolean> {
+  if (!VM.test(vm)) return false
+  // The agent dsh's Service has a cluster address; its pod has a headless name.
+  const host = vm === 'idea-dsh' ? `idea-dsh-pod.${WORK_NS}.svc` : authority(vm).replace(/:\d+$/, '')
+  const peerIp = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '')
+  try {
+    const all = await lookup(host, { all: true })
+    return all.some(a => a.address.replace(/^::ffff:/, '') === peerIp)
+  } catch { return false }
 }
 
 function send(res: ServerResponse, status: number, value: unknown) {
@@ -215,7 +232,7 @@ export function apply(ctx: any) {
   }
 
   async function running(session: string): Promise<boolean | undefined> {
-    try { return (await ctx.sessionController.state({ sessionId: session })).running } catch { return undefined }
+    try { return (await ctx.sessionController.state({ sessionId: session }, AbortSignal.timeout(10_000))).running } catch { return undefined }
   }
 
   /** Hand text to a session on this VM: at its next step if it is working, else as a new turn. */
@@ -243,14 +260,22 @@ export function apply(ctx: any) {
     return { session, local: state.local[session] }
   }
 
-  async function broadcastRoster(team: string) {
+  async function broadcastRoster(team: string, also: string[] = []) {
     const t = state.led[team]
     const roster = [t.lead, ...t.members]
     state.rosters[team] = roster
     await save()
-    const vms = new Set(t.members.map(m => m.vm))
+    const vms = new Set([...t.members.map(m => m.vm), ...also])
     vms.delete(SELF)
-    await Promise.all([...vms].map(vm => peer(vm, 'POST', '/idea-team/roster', { team, roster }).catch(() => undefined)))
+    await Promise.all([...vms].map(async vm => {
+      for (let i = 0; i < 3; i++) {
+        try {
+          const r = await peer(vm, 'POST', '/idea-team/roster', { team, roster })
+          if (r.status === 200 || r.status === 404) return
+        } catch { /* retry */ }
+        await sleep(2_000)
+      }
+    }))
   }
 
   // ------------------------------------------------------------- tools
@@ -394,7 +419,9 @@ export function apply(ctx: any) {
       const m = t.members.find(x => x.name === args.name)
       if (!m) throw new Error(`no teammate ${JSON.stringify(args.name)}`)
       const r = await peer(m.vm, 'POST', '/idea-team/stop', { team: me.local.team, name: m.name }, exec.signal)
-      if (r.status !== 200) throw new Error(`${m.vm}: ${r.value?.error ?? `HTTP ${r.status}`}`)
+      if (r.status !== 200 && r.status !== 404) throw new Error(`${m.vm}: ${r.value?.error ?? `HTTP ${r.status}`}`)
+      t.members = t.members.filter(x => x !== m)
+      await broadcastRoster(me.local.team, [m.vm])
       return { text: `Stopped ${m.name}.` }
     },
   }))
@@ -412,13 +439,17 @@ export function apply(ctx: any) {
     return { vm: SELF, members }
   }
 
-  async function inbox(v: any): Promise<Reply> {
+  async function inbox(v: any, req?: IncomingMessage): Promise<Reply> {
     await load()
+    if (req && !(await fromVm(req, v?.fromVm))) return { status: 403, value: { error: 'the message does not come from the VM it names' } }
     if (!TEAM.test(v?.team) || !NAME.test(v?.from) || !NAME.test(v?.to) || !VM.test(v?.fromVm) || typeof v?.text !== 'string') {
       return { status: 400, value: { error: 'invalid message' } }
     }
     const hit = Object.entries(state.local).find(([, l]) => l.team === v.team && l.name === v.to)
     if (!hit) return { status: 404, value: { error: `${v.to} is not on ${SELF}` } }
+    if (!(state.rosters[v.team] ?? []).some(m => m.name === v.from && m.vm === v.fromVm)) {
+      return { status: 403, value: { error: `${v.from} on ${v.fromVm} is not in team ${v.team}` } }
+    }
     if (state.stopped[`${v.team}/${v.to}`]) return { status: 410, value: { error: `${v.to} was stopped` } }
     const text = `[team ${v.team}] message from ${v.from} (${v.fromVm}):\n\n${v.text.slice(0, MAX_TEXT)}\n\n` +
       `(Answer with team_send to "${v.from}" if it needs an answer.)`
@@ -427,8 +458,13 @@ export function apply(ctx: any) {
     return { status: 200, value: { accepted: true } }
   }
 
-  async function spawn(v: any): Promise<Reply> {
+  async function spawn(v: any, req?: IncomingMessage): Promise<Reply> {
     await load()
+    // Teammates run on worker VMs only, and only the agent dsh leads teams.
+    if (SELF === 'idea-dsh') return { status: 403, value: { error: 'teammates run on worker VMs' } }
+    if (v?.lead?.vm !== 'idea-dsh' || !req || !(await fromVm(req, 'idea-dsh'))) {
+      return { status: 403, value: { error: 'only the agent dsh starts teammates' } }
+    }
     if (!TEAM.test(v?.team) || !NAME.test(v?.name) || !VM.test(v?.lead?.vm) || typeof v?.task !== 'string' || !Array.isArray(v?.roster)) {
       return { status: 400, value: { error: 'invalid spawn request' } }
     }
@@ -442,10 +478,11 @@ export function apply(ctx: any) {
     const created = await ctx.sessionController.create({ workspaceId: ws.workspace.workspaceId })
     const session: string = created.sessionId
     try { await ctx.sessionController.rename({ sessionId: session, title: `${name} · team ${team}` }) } catch { /* title only */ }
-    state.local[session] = { team, name, lead: { vm: v.lead.vm, name: LEAD } }
-    state.rosters[team] = (v.roster as Member[]).filter(m => NAME.test(m?.name) && VM.test(m?.vm))
+    const roster = (v.roster as Member[]).filter(m => NAME.test(m?.name) && VM.test(m?.vm))
       .concat([{ name, vm: SELF, session, role: String(v.role ?? '').slice(0, 200) }])
-    await save()
+    const before = state.rosters[team]
+    state.rosters[team] = roster
+    state.local[session] = { team, name, lead: { vm: v.lead.vm, name: LEAD } }
     const intro = [
       `You are teammate "${name}" in team ${team} on the idea machine. You run on worker VM ${SELF}, a VM of your own.`,
       `Your role: ${String(v.role ?? '').slice(0, 200)}`,
@@ -462,13 +499,23 @@ export function apply(ctx: any) {
       '',
       v.task.slice(0, MAX_TEXT),
     ].join('\n')
-    await deliver(session, intro)
+    try {
+      await deliver(session, intro)
+    } catch (e) {
+      // Not a member after all: the lead gets the error and can try again.
+      delete state.local[session]
+      if (before) state.rosters[team] = before
+      else delete state.rosters[team]
+      throw e
+    }
+    await save()
     await log({ team, from: LEAD, fromVm: v.lead.vm, to: name, toVm: SELF, text: v.task.slice(0, MAX_TEXT), dir: 'in' })
     return { status: 200, value: { session } }
   }
 
-  async function roster(v: any): Promise<Reply> {
+  async function roster(v: any, req?: IncomingMessage): Promise<Reply> {
     await load()
+    if (!req || !(await fromVm(req, 'idea-dsh'))) return { status: 403, value: { error: 'only the team lead sends the roster' } }
     if (!TEAM.test(v?.team) || !Array.isArray(v?.roster)) return { status: 400, value: { error: 'invalid roster' } }
     const lead = Object.values(state.local).find(l => l.team === v.team)
     if (!lead) return { status: 404, value: { error: `no member of team ${v.team} on ${SELF}` } }
@@ -477,13 +524,15 @@ export function apply(ctx: any) {
     return { status: 200, value: { ok: true } }
   }
 
-  async function stop(v: any): Promise<Reply> {
+  async function stop(v: any, req?: IncomingMessage): Promise<Reply> {
     await load()
+    if (!req || !(await fromVm(req, 'idea-dsh'))) return { status: 403, value: { error: 'only the team lead stops teammates' } }
     const hit = Object.entries(state.local).find(([, l]) => l.team === v?.team && l.name === v?.name)
     if (!hit) return { status: 404, value: { error: 'no such member here' } }
     state.stopped[`${v.team}/${v.name}`] = true
+    delete state.local[hit[0]]
     await save()
-    try { await ctx.sessionController.cancel({ sessionId: hit[0] }) } catch { /* not working */ }
+    try { ctx.sessionController.cancel({ sessionId: hit[0] }) } catch { /* not working */ }
     return { status: 200, value: { ok: true } }
   }
 

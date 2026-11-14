@@ -164,6 +164,21 @@ spec:
       port: 4443
       targetPort: dsh
 ---
+# The pod's own address under a name (headless): worker VMs check that a
+# team message claiming to come from the agent dsh does (plugins/team).
+apiVersion: v1
+kind: Service
+metadata:
+  name: idea-dsh-pod
+spec:
+  clusterIP: None
+  selector:
+    idea.dev/agent: dsh
+  ports:
+    - name: dsh
+      port: 4443
+      targetPort: dsh
+---
 # The owner's dsh reaches it at https://<machine address>:30444 through the
 # idea plugin, which signs in with a login the controller hands to paired
 # devices only.

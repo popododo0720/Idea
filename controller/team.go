@@ -11,7 +11,7 @@ package main
 //   503 {"wait": "why"}  (a VM is being added, or there is no room)
 //
 // Every worker VM reports its team members at GET /idea-team/load; the pool
-// counts them against the VM's slots.
+// counts the working ones against the VM's slots, like working tasks.
 
 import (
 	"context"
@@ -19,6 +19,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -36,6 +37,8 @@ const (
 	// teammate (the next report after this long), or at most reserveMax.
 	reserveSettle = 30 * time.Second
 	reserveMax    = 2 * time.Minute
+	// At most this many placements wait for their teammate at once.
+	maxReserved = 8
 )
 
 type reservation struct {
@@ -60,19 +63,33 @@ func (p *workerPool) teamBusy() map[string]int {
 	return out
 }
 
-func (p *workerPool) reserve(vm string) {
+// reserve holds a slot on vm for a teammate being started; false when too
+// many placements are outstanding.
+func (p *workerPool) reserve(vm string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	n := 0
+	for _, r := range p.reserved {
+		if time.Since(r.when) < reserveMax {
+			n++
+		}
+	}
+	if n >= maxReserved {
+		return false
+	}
 	p.reserved = append(p.reserved, reservation{vm: vm, when: time.Now()})
+	return true
 }
 
-// refreshTeamLoad asks every ready worker VM how many team members it runs.
+// refreshTeamLoad asks every ready worker VM how many of its team members are
+// working. A VM that does not answer keeps its last count.
 func (p *workerPool) refreshTeamLoad(ctx context.Context, vms []workerVM) {
 	token, err := p.c.teamToken(ctx)
 	if err != nil || token == "" {
 		return
 	}
 	load := map[string]int{}
+	failed := map[string]bool{}
 	for _, vm := range vms {
 		if !vm.Ready {
 			continue
@@ -80,12 +97,18 @@ func (p *workerPool) refreshTeamLoad(ctx context.Context, vms []workerVM) {
 		n, err := p.memberCount(ctx, vm.Name, token)
 		if err != nil {
 			slog.Debug("team load", "vm", vm.Name, "err", err.Error())
+			failed[vm.Name] = true
 			continue
 		}
 		load[vm.Name] = n
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	for vm := range failed {
+		if n, ok := p.teamLoad[vm]; ok {
+			load[vm] = n
+		}
+	}
 	p.teamLoad = load
 	kept := p.reserved[:0]
 	for _, r := range p.reserved {
@@ -118,15 +141,16 @@ func (p *workerPool) memberCount(ctx context.Context, vm, token string) (int, er
 	}
 	var out struct {
 		Members []struct {
-			Stopped bool `json:"stopped"`
+			Running bool `json:"running"`
 		} `json:"members"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(nil, res.Body, 1<<20)).Decode(&out); err != nil {
+	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&out); err != nil {
 		return 0, err
 	}
+	// A teammate takes a slot while it works; an idle one waits for messages.
 	n := 0
 	for _, m := range out.Members {
-		if !m.Stopped {
+		if m.Running {
 			n++
 		}
 	}
@@ -196,7 +220,10 @@ func (c *Controller) handleTeamPlacement(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"wait": c.workers.grow(ctx, vms, replicas)})
 		return
 	}
-	c.workers.reserve(vm)
+	if !c.workers.reserve(vm) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"wait": "too many teammates are starting at once"})
+		return
+	}
 	slog.Info("teammate placed", "vm", vm)
 	writeJSON(w, 200, map[string]string{"vm": vm})
 }
