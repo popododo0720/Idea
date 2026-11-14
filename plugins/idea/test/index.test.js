@@ -82,6 +82,7 @@ async function plugin(t, { registry, services = {}, timers = false } = {}) {
     logger: { info: (...a) => logs.push(['info', ...a]), warn: (...a) => logs.push(['warn', ...a]) },
     webServer: { register: r => { route = r; return () => { route = undefined } } },
     connection: { requestRejection: () => state.rejection },
+    tools: { register: () => {} },
   }
   apply(ctx)
   assert.equal(route.kind, 'prefix')

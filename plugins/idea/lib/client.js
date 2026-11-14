@@ -27,6 +27,7 @@ window.__ModuleLoader__.load({
     // so the panel follows the dsh theme, font and size settings. The
     // fallbacks only matter outside dsh.
     const CSS = `
+.idea-newtask{padding:8px 12px;border-bottom:1px solid var(--idea-line)}
 .idea-root{--idea-text:var(--dsw-alias-label-primary,#0f1115);--idea-text-2:var(--dsw-alias-label-secondary,#61666b);--idea-text-3:var(--dsw-alias-label-tertiary,#81858c);--idea-bg:var(--dsw-alias-bg-base,#fff);--idea-surface:var(--dsw-alias-bg-layer-1,#fff);--idea-line:var(--dsw-alias-border-l2,#0000001a);--idea-line-soft:var(--dsw-alias-border-l1,#0000000a);--idea-hover:var(--dsw-alias-interactive-bg-hover,#2631480f);--idea-active:var(--dsw-specific-sidebar-nav-item-active,#ebeef2);--idea-ok:var(--dsw-alias-state-success-primary,#22c55e);--idea-warn:var(--dsw-alias-state-warn-primary,#f59e0b);--idea-bad:var(--dsw-alias-state-error-primary,#ec1313);--idea-idle:var(--dsw-alias-state-idle-primary,#d4d4d4);--idea-link:var(--dsw-alias-link,#4176e6);--idea-mono:var(--ds-font-family-code,ui-monospace,Menlo,monospace);--idea-r-sm:var(--dsw-radius-sm,8px);--idea-r-md:var(--dsw-radius-md,12px)}
 .idea-root{display:flex;flex-direction:column;height:100%;min-height:0;color:var(--idea-text);background:var(--idea-bg);font-family:var(--dsw-font-family,system-ui,sans-serif);font-size:var(--dsh-content-font-size,14px);line-height:1.5;color-scheme:light}
 body[data-ds-dark-theme] .idea-root{color-scheme:dark}
@@ -885,6 +886,53 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
             h("button", { type: "button", className: "idea-btn", onClick: onClose }, "Close"))));
     }
 
+    // Hands a piece of work to the machine: the same call the agent tool
+    // idea_task_create makes (POST /idea/v1/tasks).
+    function NewTask() {
+      const [open, setOpen] = useState(false);
+      const [projects, setProjects] = useState([]);
+      const [project, setProject] = useState("");
+      const [title, setTitle] = useState("");
+      const [body, setBody] = useState("");
+      const [busy, setBusy] = useState(false);
+      const [error, setError] = useState(null);
+      const [created, setCreated] = useState(null);
+      useEffect(() => {
+        if (!open) return undefined;
+        let alive = true;
+        api("GET", "/v1/status").then(s => {
+          if (!alive) return;
+          const names = ((s && s.projects) || []).map(p => p.name);
+          setProjects(names);
+          setProject(cur => cur || names[0] || "");
+        }).catch(err => { if (alive) setError(err); });
+        return () => { alive = false; };
+      }, [open]);
+      const submit = async (e) => {
+        e.preventDefault();
+        setBusy(true); setError(null); setCreated(null);
+        try {
+          setCreated(await api("POST", "/v1/tasks", { project, title: title.trim(), body }));
+          setTitle(""); setBody("");
+        } catch (err) { setError(err); }
+        setBusy(false);
+      };
+      if (!open) return h("div", { className: "idea-newtask" }, h("button", { type: "button", className: "idea-btn", onClick: () => setOpen(true) }, "New task"));
+      return h("form", { className: "idea-stack idea-newtask", onSubmit: submit },
+        h(ErrorLine, { error }),
+        created ? h("div", { className: "idea-hint", role: "status" }, "Created issue #" + created.issue + " in " + created.project + " (task " + created.task + ").") : null,
+        h("label", { className: "idea-field" }, h("span", { className: "idea-label" }, "Project"),
+          h("select", { className: "idea-input", value: project, onChange: e => setProject(e.target.value), required: true },
+            projects.map(n => h("option", { key: n, value: n }, n)))),
+        h("label", { className: "idea-field" }, h("span", { className: "idea-label" }, "Title"),
+          h("input", { className: "idea-input", value: title, onChange: e => setTitle(e.target.value), maxLength: 200, required: true })),
+        h("label", { className: "idea-field" }, h("span", { className: "idea-label" }, "Body: goal, what to change, acceptance criteria"),
+          h("textarea", { className: "idea-input", rows: 6, value: body, onChange: e => setBody(e.target.value), maxLength: 20000 })),
+        h("div", { className: "idea-row" },
+          h("button", { type: "submit", className: "idea-btn idea-btn-primary", disabled: busy || !project || !title.trim() }, busy ? "Creating…" : "Create task"),
+          h("button", { type: "button", className: "idea-btn", onClick: () => setOpen(false) }, "Close")));
+    }
+
     function MachineView({ state, onUnpaired }) {
       const [src, setSrc] = useState(null);
       const [error, setError] = useState(null);
@@ -927,6 +975,7 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
         h(TeamView, { visible: tab === "team", onOpen: openOn }),
         h(GitView, { visible: tab === "git" }),
         h("div", { className: tab === "sessions" && !adding ? "idea-team" : "idea-hide", style: { flexDirection: "column" } },
+          h(NewTask),
           error
             ? h("div", { className: "idea-center idea-stack" }, h(ErrorLine, { error }), h("button", { type: "button", className: "idea-btn", onClick: load }, "Try again"))
             : src

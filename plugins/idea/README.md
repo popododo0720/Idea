@@ -22,6 +22,29 @@ Set up models (DeepSeek key, Claude, other providers) in this dsh's own
 **Settings → Models**. The plugin copies them to the machine, so the agents
 there use the same models without entering keys twice.
 
+## Handing work to the machine
+
+From this dsh's own chat you can give the machine a task, without opening
+Forgejo. The plugin registers three agent tools, which use the same pinned
+connection and device token as the panel (the token never reaches the agent):
+
+- `idea_task_create { project, title, body }` creates the task
+  (`POST /api/v1/tasks`) and returns the project, the issue number and the
+  task name. A different agent does the work from the issue text alone, so
+  the body must be complete: goal, what to change, acceptance criteria. The
+  title is up to 200 characters, the body up to 20000.
+- `idea_tasks { project? }` lists the machine's tasks with phase, pull
+  request and last message (`GET /api/v1/status`).
+- `idea_projects` lists the projects, to pick one.
+
+Without a pairing the tools answer "not paired with an idea machine" instead
+of failing. A refusal of the machine (HTTP 4xx or 5xx) comes back as a tool
+error with the machine's message.
+
+The **Sessions** tab has the same thing for a person: **New task** opens a
+small form (project, title, body) that creates the task and shows the issue
+and task name it made.
+
 ## How it works
 
 ```

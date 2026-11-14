@@ -25,9 +25,10 @@ import { createModelSync } from './model-sync.js'
 import { createSubscriptionsSync } from './subscriptions-sync.js'
 import { teamView } from './team-view.js'
 import { createLocalGit } from './git-local.js'
+import { createTools } from './tools.js'
 
 export const name = 'idea'
-export const inject = ['webServer', 'connection']
+export const inject = ['webServer', 'connection', 'tools']
 
 const PREFIX = '/idea'
 // Subscription sign-ins (Claude, ChatGPT/Codex, Grok, Copilot, Antigravity)
@@ -249,6 +250,24 @@ export function apply(ctx) {
     const v = JSON.parse(r.body.toString('utf8') || '{}')
     return (v.workers || []).filter(w => w && w.ready && typeof w.name === 'string' && w.name && VM.test(w.name)).map(w => w.name)
   }
+
+  // Agent tools: hand work to the machine from this dsh's own chat. Same
+  // pairing, same pinned connection; the agent never sees the token.
+  const ask = async (method, path, body, signal) => {
+    const p = await loadPairing()
+    if (!p) return undefined
+    let r
+    try {
+      r = await call(p.url, method, path, { body, token: p.token, pin: p.cert })
+    } catch (e) {
+      throw new Error(`could not reach the machine: ${e.message}`)
+    }
+    if (signal?.aborted) throw new Error('cancelled')
+    let value = null
+    try { value = JSON.parse(r.body.toString('utf8') || 'null') } catch { /* not JSON */ }
+    return { status: r.status, value }
+  }
+  for (const tool of createTools({ ask })) ctx.tools.register(tool)
 
   const rejected = (req, res) => {
     const rejection = ctx.connection.requestRejection(req)
