@@ -49,8 +49,9 @@ subjects:
     name: idea-controller
     namespace: idea-system
 ---
-# In the work namespace: test jobs, the two tokens it issues, and the agent
-# dsh (its pod log carries the login; its certificate is copied here).
+# In the work namespace: test jobs, the tokens it issues, the agent dsh (its
+# pod log carries the login; its certificate is copied here), and the worker
+# VMs (it sets how many run, and opens a NodePort per VM).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -66,12 +67,20 @@ rules:
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["get", "list", "create", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    resourceNames: ["idea-worker"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets/scale"]
+    resourceNames: ["idea-worker"]
+    verbs: ["get", "update", "patch"]
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["create"]
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["idea-worker-forgejo", "idea-runner-registration"]
+    resourceNames: ["idea-worker-forgejo", "idea-runner-registration", "idea-sync"]
     verbs: ["get"]
   - apiGroups: [""]
     resources: ["secrets"]
@@ -114,6 +123,33 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: idea-controller-setup
+subjects:
+  - kind: ServiceAccount
+    name: idea-controller
+    namespace: idea-system
+---
+# Room on the nodes: allocatable resources and what running pods request,
+# to decide whether another worker VM fits. Read-only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: idea-controller-capacity
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods"]
+    verbs: ["list"]
+  - apiGroups: ["node.k8s.io"]
+    resources: ["runtimeclasses"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: idea-controller-capacity
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: idea-controller-capacity
 subjects:
   - kind: ServiceAccount
     name: idea-controller

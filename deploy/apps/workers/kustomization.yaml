@@ -1,0 +1,6 @@
+# Worker VMs, scaled by the controller.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: idea-work
+resources:
+  - workers.yaml

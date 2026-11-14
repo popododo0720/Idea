@@ -5,8 +5,9 @@ package main
 // status and from what exists in the cluster and the agent dsh, so a pass can
 // be repeated or interrupted at any point.
 //
-// A task runs as a session in the agent dsh (dsh.go), in its project's
-// workspace, so the owner can watch and steer it from their own dsh.
+// A task runs as a session in a worker VM's dsh (workers.go, dsh.go), in its
+// project's workspace, so the owner can watch and steer it from their own
+// dsh. Tasks started before the worker VMs existed stay in the agent dsh.
 //
 //	Pending ─▶ Working ─▶ Gate ─▶ Done
 //	   └──────────┴─────────┴────▶ Failed
@@ -88,7 +89,8 @@ type taskView struct {
 	pr      int64
 	sha     string
 	branch  string
-	session string // agent dsh session id, once created
+	session string // dsh session id, once created
+	vm      string // worker VM the session is on ("" is the agent dsh)
 	prompts int64  // prompts sent to the session (initial + retries)
 	cursor  int64  // session log position when the last prompt was sent
 }
@@ -106,6 +108,7 @@ func viewOf(u *unstructured.Unstructured) taskView {
 	t.pr, _, _ = unstructured.NestedInt64(u.Object, "status", "pullRequest")
 	t.sha, _, _ = unstructured.NestedString(u.Object, "status", "headSHA")
 	t.session, _, _ = unstructured.NestedString(u.Object, "status", "session")
+	t.vm, _, _ = unstructured.NestedString(u.Object, "status", "vm")
 	t.prompts, _, _ = unstructured.NestedInt64(u.Object, "status", "prompts")
 	t.cursor, _, _ = unstructured.NestedInt64(u.Object, "status", "promptCursor")
 	if t.phase == phaseStarting {
@@ -152,23 +155,48 @@ func (c *Controller) setPhase(ctx context.Context, t taskView, phase, message st
 	return nil
 }
 
+// dshOf is the dsh a task's session lives in.
+func (c *Controller) dshOf(t taskView) *dshClient { return c.workers.client(t.vm) }
+
 func (c *Controller) reconcileTasks(ctx context.Context) error {
 	list, err := c.dyn.Resource(taskGVR).Namespace(c.cfg.SystemNS).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return err
 	}
 	active := 0
+	perVM := map[string]int{} // working sessions on each worker VM
 	for i := range list.Items {
-		switch viewOf(&list.Items[i]).phase {
+		t := viewOf(&list.Items[i])
+		switch t.phase {
 		case phaseWorking, phaseGate:
 			active++
 		}
+		if t.phase == phaseWorking && t.vm != "" {
+			perVM[t.vm]++
+		}
+	}
+	vms, replicas, err := c.workers.list(ctx)
+	if err != nil {
+		return fmt.Errorf("worker VMs: %w", err)
 	}
 	for i := range list.Items {
 		t := viewOf(&list.Items[i])
 		if t.phase == phasePending {
-			if active >= c.cfg.MaxActive {
-				continue // wait for a free slot
+			if c.cfg.MaxActive > 0 && active >= c.cfg.MaxActive {
+				_ = c.waitMessage(ctx, t, fmt.Sprintf("waiting: %d tasks are working (the most at once)", active))
+				continue
+			}
+			if t.session == "" {
+				// A new task: a worker VM with a free slot, or more VMs.
+				vm := c.workers.pick(vms, perVM)
+				if vm == "" {
+					if err := c.waitMessage(ctx, t, c.workers.grow(ctx, vms, replicas)); err != nil {
+						slog.Warn("task step", "task", t.name, "err", err.Error())
+					}
+					continue
+				}
+				t.vm = vm
+				perVM[vm]++
 			}
 			active++
 		}
@@ -189,7 +217,7 @@ func (c *Controller) step(ctx context.Context, t taskView) error {
 			// Started by an older controller (work pod + main job): start over.
 			return c.setPhase(ctx, t, phasePending, "moved to the agent dsh", nil)
 		}
-		st, err := c.dsh.state(ctx, t.session)
+		st, err := c.dshOf(t).state(ctx, t.session)
 		if err != nil {
 			if errors.Is(err, errDshNotReady) {
 				return nil // the agent dsh is restarting; the session survives
@@ -205,7 +233,7 @@ func (c *Controller) step(ctx context.Context, t taskView) error {
 		}
 		if st.busy() || st.Cursor <= t.cursor {
 			if time.Since(t.since) > 90*time.Minute {
-				_ = c.dsh.cancel(ctx, t.session)
+				_ = c.dshOf(t).cancel(ctx, t.session)
 				return c.fail(ctx, t, "the agent did not finish in 90 minutes")
 			}
 			return nil // still working (or the prompt has not started yet)
@@ -231,7 +259,7 @@ func (c *Controller) step(ctx context.Context, t taskView) error {
 		if t.session == "" {
 			return nil
 		}
-		st, err := c.dsh.state(ctx, t.session)
+		st, err := c.dshOf(t).state(ctx, t.session)
 		if err != nil {
 			if errors.Is(err, errDshNotReady) || isRemote(err, "session/not-found") {
 				return nil
@@ -254,23 +282,33 @@ func (c *Controller) step(ctx context.Context, t taskView) error {
 // the same session, so the conversation stays in one place.
 func (c *Controller) startSession(ctx context.Context, t taskView) error {
 	session := t.session
+	d := c.dshOf(t)
+	where := "the agent dsh"
+	if t.vm != "" {
+		where = "worker VM " + t.vm
+	}
 	if session == "" {
-		ws, err := c.dsh.ensureWorkspace(ctx, t.project())
+		// On a worker VM, tasks run side by side: each gets its own checkout.
+		dir := t.project()
+		if t.vm != "" {
+			dir = t.name
+		}
+		ws, err := d.ensureWorkspace(ctx, dir)
 		if errors.Is(err, errDshNotReady) {
-			return c.waitMessage(ctx, t, "waiting for the agent dsh to start")
+			return c.waitMessage(ctx, t, "waiting for "+where+" to start")
 		}
 		if err != nil {
 			return err
 		}
 		// A fixed id: creating it again (after a crash) returns the same session.
-		session, err = c.dsh.createSession(ctx, ws, "idea-"+t.name, fmt.Sprintf("#%d %s", t.issue, t.title))
+		session, err = d.createSession(ctx, ws, "idea-"+t.name, fmt.Sprintf("#%d %s", t.issue, t.title))
 		if err != nil {
 			return err
 		}
 	}
-	st, err := c.dsh.state(ctx, session)
+	st, err := d.state(ctx, session)
 	if errors.Is(err, errDshNotReady) {
-		return c.waitMessage(ctx, t, "waiting for the agent dsh to start")
+		return c.waitMessage(ctx, t, "waiting for "+where+" to start")
 	}
 	if err != nil {
 		return err
@@ -280,11 +318,11 @@ func (c *Controller) startSession(ctx context.Context, t taskView) error {
 		text = c.retryPrompt(t)
 	}
 	// The request id makes a repeated send (after a crash) the same message.
-	if err := c.dsh.prompt(ctx, session, fmt.Sprintf("idea-%s-%d", t.name, t.prompts+1), text); err != nil {
+	if err := d.prompt(ctx, session, fmt.Sprintf("idea-%s-%d", t.name, t.prompts+1), text); err != nil {
 		return err
 	}
-	return c.setPhase(ctx, t, phaseWorking, "the agent is working in its dsh session", map[string]any{
-		"session": session, "prompts": t.prompts + 1, "promptCursor": st.Cursor,
+	return c.setPhase(ctx, t, phaseWorking, "the agent is working in its dsh session on "+where, map[string]any{
+		"session": session, "vm": t.vm, "prompts": t.prompts + 1, "promptCursor": st.Cursor,
 	})
 }
 
@@ -354,7 +392,7 @@ func (c *Controller) cleanup(ctx context.Context, t taskView) {
 	bg := metav1.DeletePropagationBackground
 	_ = c.kube.BatchV1().Jobs(c.cfg.WorkNS).Delete(ctx, t.gateJob(), metav1.DeleteOptions{PropagationPolicy: &bg})
 	if t.session != "" && t.phase == phaseWorking {
-		_ = c.dsh.cancel(ctx, t.session)
+		_ = c.dshOf(t).cancel(ctx, t.session)
 	}
 }
 
@@ -419,7 +457,7 @@ Do exactly this:
 6. Open the pull request with the forgejo_pull_request tool: repo %q, head %q, title %q, body "Closes #%d".
 7. Reply with the pull request URL and whether the tests passed.
 
-Do not open more than one pull request.`,
+Do not open more than one pull request, and do not open issues: other agents work on those.`,
 		t.project(), t.repo, c.forgejoHost(), t.repo, t.issue, t.title, t.body,
 		c.forgejoHost(), t.repo, t.branch, t.branch, t.repo, t.branch,
 		fmt.Sprintf("%s (#%d)", t.title, t.issue), t.issue)

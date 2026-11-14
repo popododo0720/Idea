@@ -147,12 +147,17 @@ const FORWARD = [
   ['POST', /^\/tasks\/[a-z0-9-]{1,120}\/(retry|cancel)$/],
   ['PUT', /^\/keys$/],
   ['GET', /^\/devices$/],
+  ['GET', /^\/vms$/],
   ['DELETE', /^\/devices\/[0-9a-f]{12}$/],
 ]
 
+/** A VM name the panel may ask for: "" is the main dsh, or a worker VM. */
+const VM = /^(idea-worker-\d{1,3})?$/
+
 export function apply(ctx) {
-  // The machine's dsh, framed by the panel through a local proxy.
-  const view = createViewProxy({
+  // A dsh of the machine (vm "" is the main one, else a worker VM), framed by
+  // the panel through a local proxy. Each has its own proxy and login.
+  const makeView = vm => createViewProxy({
     upstream: async () => {
       if (process.env.IDEA_DEV_DSH_LOGIN) {
         // Development only: a dsh web started by hand, no pairing involved.
@@ -161,7 +166,7 @@ export function apply(ctx) {
       }
       const p = await loadPairing()
       if (!p) throw new Error('not paired')
-      const r = await call(p.url, 'GET', '/api/v1/dsh', { token: p.token, pin: p.cert })
+      const r = await call(p.url, 'GET', `/api/v1/dsh${vm ? `?vm=${vm}` : ''}`, { token: p.token, pin: p.cert })
       let out = {}
       try { out = JSON.parse(r.body.toString('utf8') || '{}') } catch { /* not JSON */ }
       if (r.status !== 200 || typeof out.login !== 'string' || !Number.isInteger(out.port)) {
@@ -174,7 +179,16 @@ export function apply(ctx) {
       return { url: base.origin, authority: out.authority, login: out.login, cert: p.cert }
     },
   })
-  ctx.effect(() => () => view.close(), 'idea: view proxy')
+  // The main dsh: what the panel opens first, and where models are sent.
+  const view = makeView('')
+  const views = new Map([['', view]])
+  const viewOf = vm => {
+    let v = views.get(vm)
+    if (!v) { v = makeView(vm); views.set(vm, v) }
+    return v
+  }
+  const resetViews = () => { for (const v of views.values()) v.reset() }
+  ctx.effect(() => () => { for (const v of views.values()) v.close() }, 'idea: view proxies')
 
   // Models and keys set up in this dsh follow to the machine's dsh.
   const models = createModelSync({
@@ -233,8 +247,11 @@ export function apply(ctx) {
 
     if (sub === '/view' && method === 'GET') {
       if (!process.env.IDEA_DEV_DSH_LOGIN && !(await loadPairing())) { sendJson(res, 409, { error: 'not paired' }); return }
+      let vm = url.searchParams.get('vm') || ''
+      if (vm === 'idea-dsh') vm = ''
+      if (!VM.test(vm) || (vm && process.env.IDEA_DEV_DSH_LOGIN)) { sendJson(res, 400, { error: 'unknown VM' }); return }
       try {
-        sendJson(res, 200, { src: await view.enterUrl() })
+        sendJson(res, 200, { src: await viewOf(vm).enterUrl() })
       } catch (e) {
         sendJson(res, 502, { error: `could not reach the machine's dsh: ${e.message}` })
       }
@@ -261,7 +278,7 @@ export function apply(ctx) {
       }
       const cert = toPem(r.peerRaw)
       await savePairing({ url: base, token: out.token, id: out.id, host: out.host, cert, pairedAt: new Date().toISOString() })
-      view.reset()
+      resetViews()
       models.schedule()
       subscriptions.reset()
       subscriptions.now()
@@ -277,7 +294,7 @@ export function apply(ctx) {
         try { await call(p.url, 'DELETE', `/api/v1/devices/${p.id}`, { token: p.token, pin: p.cert }) } catch { /* offline */ }
         await rm(pairingFile(), { force: true })
       }
-      view.reset()
+      resetViews()
       models.reset()
       subscriptions.reset()
       sendJson(res, 200, { paired: false })

@@ -47,11 +47,23 @@ const (
 var launchToken = regexp.MustCompile(`[?&]token=([A-Za-z0-9_-]{20,})`)
 
 type dshClient struct {
-	c      *Controller
-	mu     sync.Mutex
-	pod    string // pod the token was read from
-	token  string
-	cookie string
+	c *Controller
+	// vm is "" for the agent dsh (idea-dsh), or the pod name of a worker VM
+	// (deploy/apps/workers).
+	vm        string
+	authority string // what the dsh answers to (its --trusted-host)
+	mu        sync.Mutex
+	pod       string // pod the token was read from
+	token     string
+	cookie    string
+}
+
+// newDshClient returns a client for the agent dsh (vm "") or a worker VM.
+func (c *Controller) newDshClient(vm string) *dshClient {
+	if vm == "" {
+		return &dshClient{c: c, authority: dshAuthority}
+	}
+	return &dshClient{c: c, vm: vm, authority: workerAuthority(vm, c.cfg.WorkNS)}
 }
 
 // errDshNotReady means the agent dsh is not running (yet); callers wait.
@@ -99,8 +111,21 @@ func (d *dshClient) httpClient(ctx context.Context) (*http.Client, error) {
 	}, nil
 }
 
-// readyPod returns the running, ready agent dsh pod.
+// readyPod returns the running, ready pod of this dsh.
 func (d *dshClient) readyPod(ctx context.Context) (*corev1.Pod, error) {
+	if d.vm != "" {
+		p, err := d.c.kube.CoreV1().Pods(d.c.cfg.WorkNS).Get(ctx, d.vm, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return nil, errDshNotReady
+		}
+		if err != nil {
+			return nil, err
+		}
+		if p.DeletionTimestamp != nil || !podReady(p) {
+			return nil, errDshNotReady
+		}
+		return p, nil
+	}
 	pods, err := d.c.kube.CoreV1().Pods(d.c.cfg.WorkNS).List(ctx, metav1.ListOptions{LabelSelector: dshSelector})
 	if err != nil {
 		return nil, err
@@ -159,7 +184,7 @@ func (d *dshClient) session(ctx context.Context, fresh bool) (string, error) {
 		return "", err
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET",
-		"https://"+dshAuthority+"/connect?token="+token+"&interactions=none", nil)
+		"https://"+d.authority+"/connect?token="+token+"&interactions=none", nil)
 	if err != nil {
 		return "", err
 	}
@@ -208,7 +233,7 @@ func (d *dshClient) callArgs(ctx context.Context, method string, args map[string
 		if err != nil {
 			return err
 		}
-		req, err := http.NewRequestWithContext(ctx, "POST", "https://"+dshAuthority+"/api/"+method, bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, "POST", "https://"+d.authority+"/api/"+method, bytes.NewReader(body))
 		if err != nil {
 			return err
 		}

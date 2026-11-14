@@ -1,0 +1,180 @@
+# Worker VMs: more agent dsh instances, each a Kata VM with its own volume.
+# The controller hands each one tasks (sessions) and adds VMs while there is
+# work waiting and the cluster has room (controller/workers.go). A VM that
+# has started stays up and takes the next tasks.
+#
+# `replicas` is left out on purpose: the controller owns it, and Flux (server
+# side apply) does not reset a field it never set.
+#
+# A worker gets its models from the agent dsh (idea-dsh), not from the
+# owner's dsh: its idea-machine-sync plugin pulls the model settings, keys and
+# sign-ins from there every 30 seconds with the shared token in `idea-sync`,
+# and sends back subscription sessions it refreshed.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: idea-worker
+spec:
+  serviceName: idea-worker
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      idea.dev/agent: worker
+  template:
+    metadata:
+      labels:
+        idea.dev/agent: worker
+        idea.dev/role: worker
+    spec:
+      runtimeClassName: kata
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dsh
+          image: ghcr.io/popododo0720/idea-worker:0.12.0
+          command: ["/usr/local/bin/idea-dsh"]
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: DSH_PORT
+              value: "4443"
+            # Each VM answers to its own name (the controller and the plugin's
+            # proxy send it as Host).
+            - name: DSH_TRUSTED_HOST
+              value: $(POD_NAME).idea-worker.idea-work.svc:4443
+            # The pod is the sandbox (a Kata VM); dsh does not ask before tools.
+            - name: DSH_PERMISSION_MODE
+              value: danger-full-access
+            - name: FORGEJO_API
+              value: http://forgejo-http.idea-system.svc:3000/api/v1
+            - name: FORGEJO_USER
+              value: idea-worker
+            - name: FORGEJO_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: idea-worker-forgejo
+                  key: token
+            # Where the models come from (see above).
+            - name: IDEA_SYNC_SOURCE
+              value: https://idea-dsh.idea-work.svc:4443
+          ports:
+            - name: dsh
+              containerPort: 4443
+          readinessProbe:
+            tcpSocket:
+              port: dsh
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          # The controller reads these requests to decide whether another VM
+          # fits on a node.
+          resources:
+            requests:
+              cpu: "1"
+              memory: 3Gi
+            limits:
+              cpu: "4"
+              memory: 6Gi
+          volumeMounts:
+            - name: state
+              mountPath: /home/idea/state
+            - name: tls
+              mountPath: /etc/idea/tls
+              readOnly: true
+            - name: sync
+              mountPath: /etc/idea/sync
+              readOnly: true
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        # The machine's API certificate: served by this VM (the plugin pins
+        # one certificate for every VM) and pinned when pulling from idea-dsh.
+        - name: tls
+          secret:
+            secretName: idea-dsh-tls
+        # Shared token for pulling models from idea-dsh; created by the
+        # controller. A file, so it appears without restarting the pod.
+        - name: sync
+          secret:
+            secretName: idea-sync
+            optional: true
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: state
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 20Gi
+---
+# Stable in-cluster names: idea-worker-<n>.idea-worker.idea-work.svc
+apiVersion: v1
+kind: Service
+metadata:
+  name: idea-worker
+spec:
+  clusterIP: None
+  selector:
+    idea.dev/agent: worker
+  ports:
+    - name: dsh
+      port: 4443
+      targetPort: dsh
+---
+# Inbound to worker VMs: the controller, and the per-VM NodePorts the
+# controller opens for the owner's dsh.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: idea-worker
+spec:
+  endpointSelector:
+    matchLabels:
+      idea.dev/agent: worker
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: idea-system
+            idea.dev/role: controller
+      toPorts:
+        - ports:
+            - port: "4443"
+              protocol: TCP
+    - fromEntities:
+        - world
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "4443"
+              protocol: TCP
+  # On top of the work-pod rules: pull models from idea-dsh.
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: idea-work
+            idea.dev/agent: dsh
+      toPorts:
+        - ports:
+            - port: "4443"
+              protocol: TCP

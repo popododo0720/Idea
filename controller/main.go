@@ -52,7 +52,9 @@ type Config struct {
 	WorkNS        string
 	WorkerImage   string
 	GateMode      string // "actions": wait for a Forgejo Actions status; "controller": run the tests ourselves
-	MaxActive     int
+	MaxActive     int    // tasks working at once on the whole machine; 0: no limit but the VMs
+	WorkerSlots   int    // tasks working at once on one worker VM
+	MaxWorkers    int    // worker VMs at most (the nodes' room is the other limit)
 	DatabaseURL   string
 }
 
@@ -73,9 +75,17 @@ func mustEnv(key string) string {
 }
 
 func loadConfig() Config {
-	max, _ := strconv.Atoi(env("MAX_ACTIVE_TASKS", "1"))
-	if max < 1 {
-		max = 1
+	max, _ := strconv.Atoi(env("MAX_ACTIVE_TASKS", "0"))
+	if max < 0 {
+		max = 0
+	}
+	slots, _ := strconv.Atoi(env("WORKER_SLOTS", "3"))
+	if slots < 1 {
+		slots = 1
+	}
+	workers, _ := strconv.Atoi(env("MAX_WORKERS", "8"))
+	if workers < 1 {
+		workers = 1
 	}
 	db := url.URL{
 		Scheme: "postgres",
@@ -98,6 +108,8 @@ func loadConfig() Config {
 		WorkerImage:   mustEnv("WORKER_IMAGE"),
 		GateMode:      env("GATE_MODE", "actions"),
 		MaxActive:     max,
+		WorkerSlots:   slots,
+		MaxWorkers:    workers,
 		DatabaseURL:   db.String() + "?sslmode=disable",
 	}
 }
@@ -109,6 +121,8 @@ type Controller struct {
 	fj    *Forgejo
 	store *Store
 	dsh   *dshClient
+	// Worker VMs (workers.go); tasks run there.
+	workers *workerPool
 }
 
 func b64(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
@@ -139,7 +153,8 @@ func main() {
 		dyn:  dynamic.NewForConfigOrDie(rc),
 		fj:   NewForgejo(cfg.ForgejoURL, cfg.AdminUser, cfg.AdminPass),
 	}
-	c.dsh = &dshClient{c: c}
+	c.dsh = c.newDshClient("")
+	c.workers = newWorkerPool(c)
 
 	// PostgreSQL may still be starting: keep trying.
 	for {
@@ -182,6 +197,7 @@ func main() {
 	go c.loop(ctx, "forgejo-state", 30*time.Second, c.reconcileForgejo)
 	go c.loop(ctx, "issue-sweep", 60*time.Second, c.sweepIssues)
 	go c.loop(ctx, "tasks", 5*time.Second, c.reconcileTasks)
+	go c.loop(ctx, "workers", 15*time.Second, c.workers.reconcile)
 
 	slog.Info("controller started", "org", cfg.Org, "host", cfg.Host, "gate", cfg.GateMode)
 	<-ctx.Done()

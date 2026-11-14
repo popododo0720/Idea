@@ -41,6 +41,7 @@ window.__ModuleLoader__.load({
 .idea-hint{font-size:12px;opacity:.6;margin:0}
 .idea-input{width:100%;box-sizing:border-box;border:1px solid var(--idea-line);border-radius:6px;background:transparent;color:inherit;padding:7px 10px;font-family:ui-monospace,"Geist Mono",Menlo,monospace;font-size:12px}
 .idea-input:focus{outline:2px solid color-mix(in srgb,#4f8cff 45%,transparent)}
+.idea-vm{width:auto;max-width:240px;padding:4px 8px}
 .idea-alert{border:1px solid color-mix(in srgb,var(--idea-bad) 40%,transparent);color:var(--idea-bad);border-radius:6px;padding:10px 12px}
 `;
     function ensureStyle() {
@@ -94,14 +95,39 @@ window.__ModuleLoader__.load({
           h("button", { type: "submit", className: "idea-btn idea-btn-primary", disabled: busy, style: { width: "100%" } }, h("span", null, busy ? "Connecting…" : "Connect"))));
     }
 
+    // The machine's VMs: the main dsh (planning) and the worker VMs (tasks).
+    function useVms(enabled) {
+      const [vms, setVms] = useState(null);
+      useEffect(() => {
+        if (!enabled) return undefined;
+        let alive = true;
+        const poll = async () => {
+          try { const v = await api("GET", "/vms"); if (alive) setVms(v); } catch { /* keep the last list */ }
+        };
+        poll();
+        const t = setInterval(poll, 15000);
+        return () => { alive = false; clearInterval(t); };
+      }, [enabled]);
+      return vms;
+    }
+
+    function vmLabel(w, slots) {
+      const state = w.ready ? `${w.active}/${slots} tasks` : (w.phase || "starting").toLowerCase();
+      return `${w.name} · ${state}`;
+    }
+
     function MachineView({ state, onUnpaired }) {
       const [src, setSrc] = useState(null);
       const [error, setError] = useState(null);
+      const [vm, setVm] = useState("");
+      const vms = useVms(!state.dev);
       const load = useCallback(async () => {
         setError(null);
-        try { setSrc((await api("GET", "/view")).src); } catch (err) { setError(err); }
-      }, []);
+        setSrc(null);
+        try { setSrc((await api("GET", "/view" + (vm ? "?vm=" + encodeURIComponent(vm) : ""))).src); } catch (err) { setError(err); }
+      }, [vm]);
       useEffect(() => { load(); }, [load]);
+      const workers = (vms && vms.workers) || [];
       const unpair = async () => {
         if (!confirm("Disconnect this computer from the idea machine? Connecting again needs the setup code.")) return;
         await api("POST", "/unpair", {});
@@ -111,7 +137,12 @@ window.__ModuleLoader__.load({
         h("div", { className: "idea-bar" },
           h("span", { className: "idea-name" }, "idea"),
           h("span", { className: "idea-sub idea-grow" }, state.host || state.url || ""),
-          h("button", { type: "button", className: "idea-btn", onClick: () => { setSrc(null); load(); } }, "Reload"),
+          workers.length > 0
+            ? h("select", { className: "idea-input idea-vm", value: vm, onChange: e => setVm(e.target.value), title: "Which VM to show" },
+                h("option", { value: "" }, "idea-dsh · main"),
+                workers.map(w => h("option", { key: w.name, value: w.name, disabled: !w.ready }, vmLabel(w, vms.workerSlots))))
+            : null,
+          h("button", { type: "button", className: "idea-btn", onClick: load }, "Reload"),
           state.dev ? null : h("button", { type: "button", className: "idea-btn", onClick: unpair }, "Disconnect")),
         error
           ? h("div", { className: "idea-center idea-stack" }, h(ErrorLine, { error }), h("button", { type: "button", className: "idea-btn", onClick: load }, "Try again"))

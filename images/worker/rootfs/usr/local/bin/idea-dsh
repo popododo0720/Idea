@@ -60,6 +60,16 @@ if [ -n "${IDEA_PSTACK_PLUGIN_VERSION:-}" ] && installed dsh-pstack "$IDEA_PSTAC
   patches+=(--patch /etc/idea/dsh/pstack.patch.yml)
 fi
 
+# The main dsh (not a worker VM, which pulls its models from it): instructions
+# for planning work as issues that worker VMs run in parallel. Kept up to date
+# unless the owner took the file over (removed the managed first line).
+if [ -z "${IDEA_SYNC_SOURCE:-}" ]; then
+  agents="$DSH_HOME/AGENTS.md"
+  if [ ! -e "$agents" ] || head -1 "$agents" | grep -q '^<!-- idea: managed'; then
+    cp /etc/idea/dsh/orchestrator-AGENTS.md "$agents"
+  fi
+fi
+
 cd "$STATE/projects"
 exec dsh --profile web "${patches[@]}" \
   --no-open --host "$POD_IP" --port "${DSH_PORT:-4443}" "${trusted[@]}" "${tls[@]}"

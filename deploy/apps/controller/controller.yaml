@@ -25,7 +25,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: controller
-          image: ghcr.io/popododo0720/idea-controller:0.4.3
+          image: ghcr.io/popododo0720/idea-controller:0.5.0
           env:
             - name: FORGEJO_URL
               value: http://forgejo-http:3000
@@ -35,13 +35,20 @@ spec:
             - name: IDEA_HOST
               value: ${IDEA_HOST:=idea.internal}
             - name: WORKER_IMAGE
-              value: ghcr.io/popododo0720/idea-worker:0.11.1
+              value: ghcr.io/popododo0720/idea-worker:0.12.0
             # actions: wait for the Forgejo Actions result on the pull request.
             # controller: run the tests in a clean Kata pod ourselves.
             - name: GATE_MODE
               value: actions
+            # Tasks run on worker VMs (deploy/apps/workers), WORKER_SLOTS at a
+            # time on each; VMs are added while the nodes have room, up to
+            # MAX_WORKERS. MAX_ACTIVE_TASKS caps the whole machine (0: no cap).
             - name: MAX_ACTIVE_TASKS
-              value: "1"
+              value: "0"
+            - name: WORKER_SLOTS
+              value: "3"
+            - name: MAX_WORKERS
+              value: "8"
             - name: FORGEJO_ADMIN_USER
               valueFrom:
                 secretKeyRef:

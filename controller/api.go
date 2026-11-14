@@ -147,6 +147,7 @@ type taskRow struct {
 	IssueURL    string `json:"issueURL"`
 	Created     string `json:"created"`
 	Since       string `json:"since"`
+	VM          string `json:"vm,omitempty"` // worker VM of its session
 }
 
 func (c *Controller) taskRows(ctx context.Context) ([]taskRow, error) {
@@ -166,6 +167,7 @@ func (c *Controller) taskRows(ctx context.Context) ([]taskRow, error) {
 			IssueURL: fmt.Sprintf("https://%s/git/%s/issues/%d", c.cfg.Host, t.repo, t.issue),
 			Created:  t.obj.GetCreationTimestamp().UTC().Format(time.RFC3339),
 			Since:    t.since.UTC().Format(time.RFC3339),
+			VM:       t.vm,
 		})
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Created > rows[j].Created })
@@ -255,6 +257,39 @@ func (c *Controller) apiHandler() http.Handler {
 		writeJSON(w, 200, map[string]any{
 			"host": c.cfg.Host, "git": "https://" + c.cfg.Host + "/git/",
 			"projects": projects, "tasks": tasks, "keys": keys, "maxActive": c.cfg.MaxActive,
+			"workerSlots": c.cfg.WorkerSlots, "maxWorkers": c.cfg.MaxWorkers,
+		})
+	})
+
+	// The machine's VMs, for the plugin's VM switcher: the agent dsh (where
+	// work is planned) and the worker VMs (where tasks run), with the tasks
+	// working on each.
+	authed.HandleFunc("GET /api/v1/vms", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		vms, _, err := c.workers.list(ctx)
+		if err != nil {
+			writeError(w, 500, err.Error())
+			return
+		}
+		tasks, err := c.taskRows(ctx)
+		if err != nil {
+			writeError(w, 500, err.Error())
+			return
+		}
+		ports := c.workers.nodePorts(ctx)
+		for i := range vms {
+			vms[i].NodePort = ports[vms[i].Name]
+			for _, t := range tasks {
+				if t.VM == vms[i].Name && t.Phase == phaseWorking {
+					vms[i].Active++
+				}
+			}
+		}
+		_, err = c.dsh.readyPod(ctx)
+		writeJSON(w, 200, map[string]any{
+			"main":    map[string]any{"name": "idea-dsh", "ready": err == nil, "nodePort": dshNodePort},
+			"workers": vms, "workerSlots": c.cfg.WorkerSlots, "maxWorkers": c.cfg.MaxWorkers,
+			"note": c.workers.note,
 		})
 	})
 
@@ -433,10 +468,28 @@ func (c *Controller) apiHandler() http.Handler {
 		writeJSON(w, 200, map[string]bool{"saved": true})
 	})
 
-	// The agent dsh, for the plugin's view: where it listens (the NodePort on
-	// this machine's address), the Host it answers to, and its current login.
+	// A dsh for the plugin's view, the agent dsh or a worker VM (?vm=): where
+	// it listens (a NodePort on this machine's address), the Host it answers
+	// to, and its current login.
 	authed.HandleFunc("GET /api/v1/dsh", func(w http.ResponseWriter, r *http.Request) {
-		token, err := c.dsh.login(r.Context())
+		vm := r.URL.Query().Get("vm")
+		if vm != "" && vm != "idea-dsh" && !isWorkerVM(vm) {
+			writeError(w, 400, "unknown VM")
+			return
+		}
+		if vm == "idea-dsh" {
+			vm = ""
+		}
+		port, authority := int32(dshNodePort), dshAuthority
+		if vm != "" {
+			port = c.workers.nodePorts(r.Context())[vm]
+			if port == 0 {
+				writeError(w, 503, "that worker VM is not reachable yet")
+				return
+			}
+			authority = workerAuthority(vm, c.cfg.WorkNS)
+		}
+		token, err := c.workers.client(vm).login(r.Context())
 		if errors.Is(err, errDshNotReady) {
 			writeError(w, 503, "the agent dsh is not running yet")
 			return
@@ -447,7 +500,7 @@ func (c *Controller) apiHandler() http.Handler {
 			return
 		}
 		writeJSON(w, 200, map[string]any{
-			"port": dshNodePort, "authority": dshAuthority, "login": "/?token=" + token,
+			"port": port, "authority": authority, "login": "/?token=" + token,
 		})
 	})
 

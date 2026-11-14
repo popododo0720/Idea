@@ -47,7 +47,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: dsh
-          image: ghcr.io/popododo0720/idea-worker:0.11.1
+          image: ghcr.io/popododo0720/idea-worker:0.12.0
           command: ["/usr/local/bin/idea-dsh"]
           env:
             - name: POD_IP
@@ -105,6 +105,9 @@ spec:
               readOnly: true
             - name: shm
               mountPath: /dev/shm
+            - name: sync
+              mountPath: /etc/idea/sync
+              readOnly: true
       volumes:
         - name: state
           persistentVolumeClaim:
@@ -118,6 +121,12 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 1Gi
+        # Shared token the worker VMs present to pull the models set up here
+        # (plugins/machine-sync); created by the controller.
+        - name: sync
+          secret:
+            secretName: idea-sync
+            optional: true
 ---
 # In-cluster address (the controller), and the name every client sends as Host.
 apiVersion: v1
@@ -149,7 +158,8 @@ spec:
       targetPort: dsh
       nodePort: 30444
 ---
-# Inbound to the agent dsh: the controller, and the NodePort.
+# Inbound to the agent dsh: the controller, the worker VMs (models, see
+# deploy/apps/workers), and the NodePort.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -163,6 +173,14 @@ spec:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: idea-system
             idea.dev/role: controller
+      toPorts:
+        - ports:
+            - port: "4443"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: idea-work
+            idea.dev/agent: worker
       toPorts:
         - ports:
             - port: "4443"
