@@ -46,17 +46,20 @@ export const rawUrl = r => `https://raw.githubusercontent.com/${r.owner}/${r.rep
 export const commitsUrl = r => `https://github.com/${r.owner}/${r.repo}/commits/${r.ref}`
 
 /**
- * The argument list that runs `dsh plugin --profile <p> add <spec>` with the
- * running dsh: its Node and script, or its own executable when it is a single
- * binary. Returns undefined when the profile is unknown.
+ * The argument list that runs `dsh plugin --profile <name> add <spec>` with
+ * the running dsh: its own executable when dsh is a single executable, else
+ * Node and the dsh entry script. Undefined when the profile is unknown.
  */
-export function updateCommand({ env, argv, execPath, spec }) {
-  const profile = env.DSH_PROFILE || (env.DSH_PROFILE_DIR ? env.DSH_PROFILE_DIR.split('/').filter(Boolean).pop() : '')
-  if (!profile) return undefined
-  const rest = ['plugin', '--profile', profile, 'add', spec]
-  if (env.DSH_NODE_EXECUTABLE && argv[1]) return { file: env.DSH_NODE_EXECUTABLE, args: [argv[1], ...rest] }
-  return { file: execPath, args: rest }
+export function updateCommand({ profile, sea, argv, execPath, spec }) {
+  const name = profile && typeof profile.name === 'string' ? profile.name : ''
+  if (!name) return undefined
+  const rest = ['plugin', '--profile', name, 'add', spec]
+  if (sea) return { file: execPath, args: rest }
+  if (!argv[1]) return undefined
+  return { file: execPath, args: [argv[1], ...rest] }
 }
+
+const runningSea = () => Boolean(process.getBuiltinModule('node:sea')?.isSea())
 
 function installedVersion() {
   return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
@@ -66,7 +69,8 @@ export function createUpdater({
   ctx,
   fetchImpl = (...a) => globalThis.fetch(...a),
   execFile = nodeExecFile,
-  env = process.env,
+  profile = () => undefined,
+  sea = runningSea,
   argv = process.argv,
   execPath = process.execPath,
   now = () => Date.now(),
@@ -113,8 +117,10 @@ export function createUpdater({
 
   const apply = () => new Promise(resolve => {
     if (running) { resolve({ ok: false, error: 'An update is already running.' }); return }
-    const cmd = updateCommand({ env, argv, execPath, spec })
-    if (!cmd) { result = { ok: false, code: null, stderr: 'The dsh profile is unknown.' }; resolve(result); return }
+    let prof
+    try { prof = profile() } catch { /* service missing */ }
+    const cmd = updateCommand({ profile: prof, sea: sea(), argv, execPath, spec })
+    if (!cmd) { result = { ok: false, code: null, stderr: 'Cannot update from here: this dsh did not tell the plugin its profile or its entry point.' }; resolve(result); return }
     running = true
     execFile(cmd.file, cmd.args, { timeout: UPDATE_TIMEOUT_MS, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, _stdout, stderr) => {
       running = false

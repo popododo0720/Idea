@@ -246,6 +246,7 @@ export function apply(ctx) {
   // Update notice: the owner clicks Update; nothing installs by itself.
   const updater = createUpdater({
     ctx,
+    profile: () => ctx.get('profileContext'),
     source: async () => {
       const pm = ctx.get('pluginManager')
       if (!pm || typeof pm.listBundles !== 'function') return undefined

@@ -37,7 +37,7 @@ test('checks are never more often than every 10 minutes, and the timers run at s
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
   const calls = []
   let clock = 0
-  const u = createUpdater({ ctx: { logger: logger() }, fetchImpl: pkgFetch(calls), now: () => clock, installed: '0.8.7', env: {} })
+  const u = createUpdater({ ctx: { logger: logger() }, fetchImpl: pkgFetch(calls), now: () => clock, installed: '0.8.7' })
   u.start()
   t.mock.timers.tick(5_000)
   await new Promise(r => setImmediate(r))
@@ -60,7 +60,7 @@ test('checks are never more often than every 10 minutes, and the timers run at s
 test('network errors are logged once and keep the old state', async () => {
   const log = logger()
   let clock = 0
-  const u = createUpdater({ ctx: { logger: log }, fetchImpl: async () => { throw new Error('offline') }, now: () => clock, installed: '0.8.7', env: {} })
+  const u = createUpdater({ ctx: { logger: log }, fetchImpl: async () => { throw new Error('offline') }, now: () => clock, installed: '0.8.7' })
   for (let i = 0; i < 3; i++) { await u.check(); clock += MIN_GAP_MS }
   assert.equal(log.logs.length, 1)
   assert.deepEqual([u.state().latest, u.state().available], [null, false])
@@ -70,7 +70,7 @@ test('a bad status or bad version is ignored', async () => {
   const log = logger()
   let clock = 0
   let reply
-  const u = createUpdater({ ctx: { logger: log }, fetchImpl: async () => reply, now: () => clock, installed: '0.8.7', env: {} })
+  const u = createUpdater({ ctx: { logger: log }, fetchImpl: async () => reply, now: () => clock, installed: '0.8.7' })
   for (const r of [
     { ok: false, status: 404, text: async () => '' },
     { ok: true, status: 200, text: async () => JSON.stringify({ version: '9.9.9-evil' }) },
@@ -83,7 +83,7 @@ test('a bad status or bad version is ignored', async () => {
 test('banner state: available only when the latest is newer', async () => {
   let clock = 0
   let version = '0.8.7'
-  const u = createUpdater({ ctx: { logger: logger() }, fetchImpl: async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ version }) }), now: () => clock, installed: '0.8.7', env: {}, source: async () => 'github:me/fork#dev' })
+  const u = createUpdater({ ctx: { logger: logger() }, fetchImpl: async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ version }) }), now: () => clock, installed: '0.8.7', source: async () => 'github:me/fork#dev' })
   await u.check()
   assert.equal(u.state().available, false)
   clock += MIN_GAP_MS
@@ -94,26 +94,29 @@ test('banner state: available only when the latest is newer', async () => {
 
 test('a failing spec source falls back to the default repository', async () => {
   const calls = []
-  const u = createUpdater({ ctx: { logger: logger() }, fetchImpl: pkgFetch(calls), installed: '0.8.7', env: {}, source: async () => { throw new Error('x') } })
+  const u = createUpdater({ ctx: { logger: logger() }, fetchImpl: pkgFetch(calls), installed: '0.8.7', source: async () => { throw new Error('x') } })
   await u.check()
   assert.match(calls[0], /popododo0720\/Idea\/main\/plugins\/idea\/package\.json$/)
 })
 
-test('updateCommand is an argument array run with the running dsh', () => {
+test('updateCommand: single executable and Node plus entry script, as argument arrays', () => {
   const spec = 'github:a/b#path:/plugins/idea; rm -rf /'
+  const profile = { name: 'web', dir: '/h/profiles/web', installAnchor: '/x' }
   assert.deepEqual(
-    updateCommand({ env: { DSH_PROFILE: 'web', DSH_NODE_EXECUTABLE: '/usr/bin/node' }, argv: ['node', '/usr/bin/dsh'], execPath: '/x/node', spec }),
-    { file: '/usr/bin/node', args: ['/usr/bin/dsh', 'plugin', '--profile', 'web', 'add', spec] })
+    updateCommand({ profile, sea: true, argv: ['/bin/dsh'], execPath: '/bin/dsh', spec }),
+    { file: '/bin/dsh', args: ['plugin', '--profile', 'web', 'add', spec] })
   assert.deepEqual(
-    updateCommand({ env: { DSH_PROFILE_DIR: '/h/profiles/p1/' }, argv: ['dsh'], execPath: '/bin/dsh', spec: 's' }),
-    { file: '/bin/dsh', args: ['plugin', '--profile', 'p1', 'add', 's'] })
-  assert.equal(updateCommand({ env: {}, argv: [], execPath: '/bin/dsh', spec: 's' }), undefined)
+    updateCommand({ profile, sea: false, argv: ['/usr/bin/node', '/opt/dsh/lib/bin.js'], execPath: '/usr/bin/node', spec }),
+    { file: '/usr/bin/node', args: ['/opt/dsh/lib/bin.js', 'plugin', '--profile', 'web', 'add', spec] })
+  assert.equal(updateCommand({ profile: undefined, sea: true, argv: [], execPath: '/b', spec }), undefined)
+  assert.equal(updateCommand({ profile: {}, sea: true, argv: [], execPath: '/b', spec }), undefined)
+  assert.equal(updateCommand({ profile, sea: false, argv: ['/n'], execPath: '/n', spec }), undefined)
 })
 
 test('apply runs execFile with no shell and reports success', async () => {
   const seen = []
   const execFile = (file, args, opts, cb) => { seen.push([file, args, opts]); cb(null, 'ok', '') }
-  const u = createUpdater({ ctx: { logger: logger() }, execFile, installed: '0.8.7', env: { DSH_PROFILE: 'web', DSH_NODE_EXECUTABLE: '/n' }, argv: ['n', '/d'], source: async () => 'github:me/fork' })
+  const u = createUpdater({ ctx: { logger: logger() }, execFile, installed: '0.8.7', profile: () => ({ name: 'web' }), sea: () => false, execPath: '/n', argv: ['n', '/d'], source: async () => 'github:me/fork' })
   await u.specNow()
   const r = await u.apply()
   assert.deepEqual(r, { ok: true })
@@ -125,13 +128,13 @@ test('apply runs execFile with no shell and reports success', async () => {
 test('apply reports the exit code and the last stderr lines on failure', async () => {
   const stderr = Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n') + '\n'
   const execFile = (_f, _a, _o, cb) => cb(Object.assign(new Error('failed'), { code: 3 }), '', stderr)
-  const u = createUpdater({ ctx: { logger: logger() }, execFile, installed: '0.8.7', env: { DSH_PROFILE: 'web' } })
+  const u = createUpdater({ ctx: { logger: logger() }, execFile, installed: '0.8.7', profile: () => ({ name: 'web' }), sea: () => true })
   const r = await u.apply()
   assert.equal(r.ok, false)
   assert.equal(r.code, 3)
   assert.equal(r.stderr.split('\n').length, 8)
   assert.ok(r.stderr.endsWith('line 19'))
-  const timedOut = createUpdater({ ctx: { logger: logger() }, execFile: (_f, _a, _o, cb) => cb(Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }), '', ''), installed: '0.8.7', env: { DSH_PROFILE: 'web' } })
+  const timedOut = createUpdater({ ctx: { logger: logger() }, execFile: (_f, _a, _o, cb) => cb(Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }), '', ''), installed: '0.8.7', profile: () => ({ name: 'web' }), sea: () => true })
   const t = await timedOut.apply()
   assert.deepEqual([t.code, t.stderr], [null, 'timed out'])
 })
@@ -140,10 +143,14 @@ test('apply without a known profile fails without running anything, and runs one
   let ran = 0
   let finish
   const execFile = (_f, _a, _o, cb) => { ran++; finish = cb }
-  const none = createUpdater({ ctx: { logger: logger() }, execFile, installed: '0.8.7', env: {} })
-  assert.equal((await none.apply()).ok, false)
+  const none = createUpdater({ ctx: { logger: logger() }, execFile, installed: '0.8.7' })
+  const miss = await none.apply()
+  assert.equal(miss.ok, false)
+  assert.match(miss.stderr, /did not tell the plugin its profile/)
+  const thrown = createUpdater({ ctx: { logger: logger() }, execFile, installed: '0.8.7', profile: () => { throw new Error('no such service') } })
+  assert.equal((await thrown.apply()).ok, false)
   assert.equal(ran, 0)
-  const u = createUpdater({ ctx: { logger: logger() }, execFile, installed: '0.8.7', env: { DSH_PROFILE: 'web' } })
+  const u = createUpdater({ ctx: { logger: logger() }, execFile, installed: '0.8.7', profile: () => ({ name: 'web' }), sea: () => true })
   const first = u.apply()
   assert.equal(u.state().running, true)
   assert.equal((await u.apply()).ok, false)
