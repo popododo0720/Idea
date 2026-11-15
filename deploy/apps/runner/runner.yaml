@@ -46,9 +46,12 @@ spec:
             requests:
               cpu: 100m
               memory: 256Mi
+            # A Kata VM gets the limits as its size. CI is mostly CPU-bound
+            # (golangci-lint, go test); memory on the machine is the scarce
+            # part, so only a little more of it.
             limits:
-              cpu: "2"
-              memory: 1Gi
+              cpu: "4"
+              memory: 1536Mi
           volumeMounts:
             - name: token
               mountPath: /etc/idea/runner
