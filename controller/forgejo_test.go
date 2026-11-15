@@ -465,3 +465,20 @@ func TestForgejoBranchHeadAndCommits(t *testing.T) {
 		t.Fatalf("commits %+v %v", cs, err)
 	}
 }
+
+func TestPRByNumber(t *testing.T) {
+	f := newFakeForgejo(t)
+	f.on("GET /repos/idea/shop/pulls/3", 200, `{"number":3,"state":"closed","merged":true,"head":{"ref":"refs/pull/3/head","sha":"a"}}`)
+	f.on("GET /repos/idea/shop/pulls/5", 500, `{}`)
+	fj := f.client()
+	pr, err := fj.PR(t.Context(), "idea/shop", 3)
+	if err != nil || pr == nil || pr.Number != 3 || !pr.Merged {
+		t.Fatalf("pr = %+v err=%v", pr, err)
+	}
+	if pr, err := fj.PR(t.Context(), "idea/shop", 4); err != nil || pr != nil {
+		t.Fatalf("missing: pr=%+v err=%v", pr, err)
+	}
+	if _, err := fj.PR(t.Context(), "idea/shop", 5); !isStatus(err, 500) {
+		t.Fatalf("server error: %v", err)
+	}
+}

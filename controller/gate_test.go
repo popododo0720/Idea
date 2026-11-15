@@ -58,6 +58,7 @@ func TestGate(t *testing.T) {
 		pulls       fjReply
 		status      fjReply
 		runs        fjReply // Forgejo Actions runs; unset: 404 (Actions off)
+		byNumber    fjReply // GET of pull request #3; unset: 404
 		merge       fjReply
 		wantErr     string // part of the returned error
 		wantPhase   string
@@ -143,6 +144,20 @@ func TestGate(t *testing.T) {
 			wantPhase: phaseFailed, wantMsg: "no test result",
 		},
 		{
+			// Merging deleted the branch: the listing shows the pull request
+			// under refs/pull/3/head, so it is found by its number.
+			name: "merged and branch deleted", since: time.Minute,
+			pulls:     fjReply{Body: `[{"number":3,"state":"closed","merged":true,"head":{"ref":"refs/pull/3/head","sha":"abc123"}}]`},
+			byNumber:  fjReply{Body: `{"number":3,"state":"closed","merged":true,"head":{"ref":"refs/pull/3/head","sha":"abc123"}}`},
+			wantPhase: phaseDone, wantMsg: "pull request #3 merged",
+		},
+		{
+			name: "pull request by number unreadable", since: time.Minute,
+			pulls:    fjReply{Body: `[]`},
+			byNumber: fjReply{Status: 500},
+			wantErr:  "HTTP 500", wantPhase: phaseGate, wantMsg: "waiting for tests",
+		},
+		{
 			name: "pull request gone", since: time.Minute,
 			pulls:     fjReply{Body: `[{"number":9,"head":{"ref":"idea/issue-70"}}]`},
 			wantPhase: phaseFailed, wantMsg: "the pull request disappeared",
@@ -203,6 +218,9 @@ func TestGate(t *testing.T) {
 			}
 			if tc.runs.Body != "" || tc.runs.Status != 0 {
 				e.fj.routes[gateRunsAPI] = tc.runs
+			}
+			if tc.byNumber.Body != "" || tc.byNumber.Status != 0 {
+				e.fj.routes["GET /repos/idea/shop/pulls/3"] = tc.byNumber
 			}
 			e.fj.routes[gateComment] = fjReply{Status: 201, Body: `{}`}
 			e.fj.routes[gateMerge] = tc.merge

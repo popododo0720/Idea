@@ -288,6 +288,18 @@ func (f *Forgejo) FindPR(ctx context.Context, repo, branch string) (*PullRequest
 	return nil, nil
 }
 
+// PR returns pull request number of repo, or nil when there is none.
+func (f *Forgejo) PR(ctx context.Context, repo string, number int64) (*PullRequest, error) {
+	var pr PullRequest
+	if err := f.do(ctx, "GET", fmt.Sprintf("/repos/%s/pulls/%d", repo, number), nil, &pr); err != nil {
+		if isStatus(err, http.StatusNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &pr, nil
+}
+
 type CombinedStatus struct {
 	State      string `json:"state"`
 	TotalCount int    `json:"total_count"`
