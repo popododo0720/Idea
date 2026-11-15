@@ -25,13 +25,22 @@ if out="$(check)"; then
   echo "FAIL: missing controller tag was accepted" >&2
   exit 1
 fi
-grep -q 'y.yaml references idea-controller:2.0.0' <<<"$out" || { echo "FAIL: no manifest/tag report: $out" >&2; exit 1; }
-grep -q 'scripts/build-controller.sh' <<<"$out" || { echo "FAIL: no build hint: $out" >&2; exit 1; }
+grep -q 'y.yaml references idea-controller:2.0.0' <<<"$out" || {
+  echo "FAIL: no manifest/tag report: $out" >&2
+  exit 1
+}
+grep -q 'scripts/build-controller.sh' <<<"$out" || {
+  echo "FAIL: no build hint: $out" >&2
+  exit 1
+}
 if grep -q 'idea-worker\|postgres\|nginx' <<<"$out"; then
   echo "FAIL: reported a built or third-party image: $out" >&2
   exit 1
 fi
 
 echo '{"tags":["2.0.0"]}' >"$tmp/reg/v2/popododo0720/idea-controller/tags/list"
-check >/dev/null || { echo "FAIL: complete registry rejected" >&2; exit 1; }
+check >/dev/null || {
+  echo "FAIL: complete registry rejected" >&2
+  exit 1
+}
 echo "check-images: ok"
