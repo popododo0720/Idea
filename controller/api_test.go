@@ -598,3 +598,69 @@ func TestAPITaskUnknown(t *testing.T) {
 		}
 	}
 }
+
+func TestRetryResetsPerAttemptCounters(t *testing.T) {
+	task := taskObj(3, map[string]any{
+		"phase": phaseFailed, "attempt": int64(2), "conflicts": int64(3), "publishFixes": int64(3),
+		"reviewRounds": int64(3), "reviewVerdict": verdictChanges, "reviewSHA": "abc", "reviewApproved": "abc",
+	})
+	e := newEnv(t, task)
+	if err := e.c.retryTask(t.Context(), e.task(t, task.GetName()), ""); err != nil {
+		t.Fatal(err)
+	}
+	got := e.task(t, task.GetName())
+	if got.attempt != 3 {
+		t.Fatalf("attempt = %d, want 3", got.attempt)
+	}
+	for _, k := range []string{"conflicts", "publishFixes", "reviewRounds"} {
+		if n := statusInt(got, k); n != 0 {
+			t.Errorf("%s = %d after retry", k, n)
+		}
+	}
+	for _, k := range []string{"reviewVerdict", "reviewSHA", "reviewApproved"} {
+		if v := statusString(got, k); v != "" {
+			t.Errorf("%s = %q after retry", k, v)
+		}
+	}
+}
+
+func TestRetryFirstAttemptIsOne(t *testing.T) {
+	task := taskObj(3, map[string]any{"phase": phaseFailed})
+	e := newEnv(t, task)
+	v := e.task(t, task.GetName())
+	if v.attempt != 1 {
+		t.Fatalf("attempt = %d, want 1", v.attempt)
+	}
+	if err := e.c.retryTask(t.Context(), v, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.task(t, task.GetName()); got.attempt != 2 {
+		t.Fatalf("attempt = %d, want 2", got.attempt)
+	}
+}
+
+func TestRequestIDsNeverRepeatAcrossAttempts(t *testing.T) {
+	task := taskObj(3, map[string]any{"phase": phaseFailed})
+	e := newEnv(t, task)
+	seen := map[string]bool{}
+	for range 3 {
+		v := e.task(t, task.GetName())
+		for _, kind := range []string{"prompt", "conflict", "publish", "review"} {
+			for n := int64(1); n <= 3; n++ {
+				id := v.requestID(kind, n)
+				if seen[id] {
+					t.Fatalf("request id %q repeated", id)
+				}
+				seen[id] = true
+			}
+		}
+		if err := e.c.retryTask(t.Context(), v, ""); err != nil {
+			t.Fatal(err)
+		}
+		// Counters back at zero by hand-reset or retry: the ids still differ.
+		e.task(t, task.GetName())
+		if err := e.c.setPhase(t.Context(), e.task(t, task.GetName()), phaseFailed, "x", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

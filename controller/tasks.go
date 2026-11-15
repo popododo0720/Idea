@@ -93,6 +93,7 @@ type taskView struct {
 	vm      string // worker VM the session is on ("" is the agent dsh)
 	prompts int64  // prompts sent to the session (initial + retries)
 	cursor  int64  // session log position when the last prompt was sent
+	attempt int64  // 1 for the first run, +1 for every retry
 }
 
 func viewOf(u *unstructured.Unstructured) taskView {
@@ -111,6 +112,10 @@ func viewOf(u *unstructured.Unstructured) taskView {
 	t.vm, _, _ = unstructured.NestedString(u.Object, "status", "vm")
 	t.prompts, _, _ = unstructured.NestedInt64(u.Object, "status", "prompts")
 	t.cursor, _, _ = unstructured.NestedInt64(u.Object, "status", "promptCursor")
+	t.attempt, _, _ = unstructured.NestedInt64(u.Object, "status", "attempt")
+	if t.attempt < 1 {
+		t.attempt = 1
+	}
 	if t.phase == phaseStarting {
 		t.phase = phasePending
 	}
@@ -122,6 +127,12 @@ func viewOf(u *unstructured.Unstructured) taskView {
 	}
 	t.branch = fmt.Sprintf("idea/issue-%d", t.issue)
 	return t
+}
+
+// requestID is a prompt request id. The attempt keeps it unique across
+// retries: dsh drops a prompt whose request id it already accepted.
+func (t taskView) requestID(kind string, n int64) string {
+	return fmt.Sprintf("idea-%s-a%d-%s-%d", t.name, t.attempt, kind, n)
 }
 
 func (t taskView) gateJob() string { return "g-" + t.name }
@@ -321,7 +332,7 @@ func (c *Controller) startSession(ctx context.Context, t taskView) error {
 		text = c.retryPrompt(t)
 	}
 	// The request id makes a repeated send (after a crash) the same message.
-	if err := d.prompt(ctx, session, fmt.Sprintf("idea-%s-%d", t.name, t.prompts+1), text); err != nil {
+	if err := d.prompt(ctx, session, t.requestID("prompt", t.prompts+1), text); err != nil {
 		return err
 	}
 	return c.setPhase(ctx, t, phaseWorking, "the agent is working in its dsh session on "+where, map[string]any{
@@ -367,7 +378,7 @@ Update branch %s:
 3. Run the repository's checks (scripts/ci.sh if it has one, else its tests) and fix what fails.
 4. git push --force-with-lease
 Do not open a new pull request; the existing one follows the branch. Reply when it is pushed.`, number, t.branch)
-	if err := d.prompt(ctx, t.session, fmt.Sprintf("idea-%s-conflict-%d", t.name, conflicts+1), text); err != nil {
+	if err := d.prompt(ctx, t.session, t.requestID("conflict", conflicts+1), text); err != nil {
 		return err
 	}
 	_ = c.fj.Comment(ctx, t.repo, t.issue, fmt.Sprintf(
@@ -416,7 +427,7 @@ Fix branch %s:
   git rebase origin/main --exec 'git commit --amend --no-edit --reset-author'
 - A private name or address: names and addresses of the network this machine runs in (host names, internal domains, IP addresses) must not be in the code, commit messages or file names. Replace them with placeholders or settings, and rewrite the commits that added them (git rebase -i is not available; use git reset --soft origin/main and commit again).
 Then run the tests and git push --force-with-lease. Do not open a new pull request. Reply when it is pushed.`, number, problem, t.branch)
-	if err := d.prompt(ctx, t.session, fmt.Sprintf("idea-%s-publish-%d", t.name, fixes+1), text); err != nil {
+	if err := d.prompt(ctx, t.session, t.requestID("publish", fixes+1), text); err != nil {
 		return true, err
 	}
 	_ = c.fj.Comment(ctx, t.repo, t.issue, fmt.Sprintf(
