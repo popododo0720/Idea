@@ -872,13 +872,13 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
         h("div", { className: "idea-stack" },
           h("div", null,
             h("h1", { style: { fontSize: "18px", margin: "0 0 4px" } }, "Add a node"),
-            h("p", { className: "idea-hint" }, "Boot another blank machine from the idea ISO, choose \"Join an existing machine\" on its install page and enter the address and the join code. It joins as an extra node and adds room for worker VMs. The code works once, for 30 minutes.")),
+            h("p", { className: "idea-hint" }, "Boot another blank machine from the idea ISO, choose \"Join an existing machine\" on its install page and enter the address, the join code and the certificate fingerprint. The machine only joins if the fingerprint matches, so compare it with the one shown here. It joins as an extra node and adds room for worker VMs. The code works once, for 30 minutes.")),
           h(ErrorLine, { error }),
           info
             ? h("div", { className: "idea-stack" },
                 h("div", { className: "idea-field" }, h("span", { className: "idea-label" }, "Join code"), h("code", { className: "idea-input", "data-testid": "join-code" }, info.code)),
                 h("div", { className: "idea-field" }, h("span", { className: "idea-label" }, "Address"), h("code", { className: "idea-input" }, address)),
-                state.fingerprint ? h("div", { className: "idea-field" }, h("span", { className: "idea-label" }, "Certificate fingerprint (optional check)"), h("code", { className: "idea-input", style: { wordBreak: "break-all" } }, state.fingerprint)) : null,
+                state.fingerprint ? h("div", { className: "idea-field" }, h("span", { className: "idea-label" }, "Certificate fingerprint (required)"), h("code", { className: "idea-input", style: { wordBreak: "break-all" } }, state.fingerprint)) : null,
                 h("p", { className: "idea-hint" }, "Valid until " + timeOf(info.expiresAt) + ", single use."))
             : null,
           h("div", { style: { display: "flex", gap: "8px" } },

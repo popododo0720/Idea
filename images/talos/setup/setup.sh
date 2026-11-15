@@ -111,7 +111,8 @@ datadisk=""
 host="$(arg idea.host)"
 # What to do with this machine: a new idea machine, or an extra node of an
 # existing one (join). Kernel arguments idea.join=<address[:port]>,
-# idea.join-code=<code> and optionally idea.join-fp=<certificate fingerprint>
+# idea.join-code=<code> and idea.join-fp=<certificate fingerprint> (all
+# three are required)
 # make the choice without a person; otherwise the install page asks.
 role=new
 joinaddr="$(arg idea.join)"
@@ -205,6 +206,11 @@ if [ "$role" = join ]; then
       exit 1
       ;;
   esac
+  [ -n "$joinfp" ] || {
+    log "joining needs the certificate fingerprint of the existing machine (idea.join-fp, shown in the idea panel next to the join code)"
+    sleep 60
+    exit 1
+  }
   case "$joinaddr" in *:*) ;; *) joinaddr="$joinaddr:30443" ;; esac
   log "joining the idea machine at $joinaddr as an extra node"
   n=0

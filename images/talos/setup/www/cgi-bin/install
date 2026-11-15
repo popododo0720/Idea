@@ -52,9 +52,9 @@ form() { # form [error]
   echo '<p class="hint">The address of the existing machine, as in the idea panel. The port is 30443 when left out.</p></div>'
   echo '<div class="field"><label class="label" for="joincode">Join code (only to join)</label>'
   echo '<input class="input mono code-input" id="joincode" name="joincode" placeholder="xxxx-xxxx-xxxx" autocomplete="off" autocapitalize="off" spellcheck="false"></div>'
-  echo '<div class="field"><label class="label" for="joinfp">Certificate fingerprint (optional)</label>'
+  echo '<div class="field"><label class="label" for="joinfp">Certificate fingerprint (required to join)</label>'
   echo '<input class="input mono" id="joinfp" name="joinfp" placeholder="shown next to the join code" autocomplete="off" autocapitalize="off" spellcheck="false">'
-  echo '<p class="hint">When given, the install only continues if the existing machine presents exactly this certificate.</p></div>'
+  echo '<p class="hint">Required. The install only continues if the existing machine presents exactly this certificate.</p></div>'
   echo '<fieldset style="border:0;margin:0;padding:0"><legend class="label">Disk</legend>'
   while read -r dev size used model; do
     echo "<label class=\"choice\"><input type=\"radio\" name=\"disk\" value=\"$dev\" required>"
@@ -127,8 +127,8 @@ if [ "$role" = join ]; then
     || { form 'Enter the address of the existing machine (for example 192.168.0.20:30443).'; exit 0; }
   echo "$joincode" | grep -Eq '^[a-zA-Z0-9-]{8,32}$' \
     || { form 'Enter the join code from the idea panel.'; exit 0; }
-  [ -z "$joinfp" ] || echo "$joinfp" | grep -Eq '^[0-9a-fA-F:]{64,95}$' \
-    || { form 'The certificate fingerprint is not valid.'; exit 0; }
+  echo "$joinfp" | grep -Eq '^[0-9a-fA-F:]{64,95}$' \
+    || { form 'Enter the certificate fingerprint from the idea panel.'; exit 0; }
   host=""
 else
   joinaddr="" joincode="" joinfp=""

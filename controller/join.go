@@ -17,6 +17,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -36,15 +37,28 @@ const (
 // joinNow is the clock of join codes (tests replace it).
 var joinNow = time.Now
 
+// newJoinCode draws 12 characters uniformly from joinAlphabet. Bytes at or
+// above the largest multiple of the alphabet size are dropped, so no
+// character is more likely than another.
 func newJoinCode() (string, error) {
-	b := make([]byte, 12)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
+	return joinCodeFrom(rand.Reader)
+}
+
+func joinCodeFrom(r io.Reader) (string, error) {
+	const limit = 256 - 256%len(joinAlphabet)
+	code := make([]byte, 0, 12)
+	buf := make([]byte, 16)
+	for len(code) < 12 {
+		if _, err := io.ReadFull(r, buf); err != nil {
+			return "", err
+		}
+		for _, b := range buf {
+			if int(b) < limit && len(code) < 12 {
+				code = append(code, joinAlphabet[int(b)%len(joinAlphabet)])
+			}
+		}
 	}
-	for i := range b {
-		b[i] = joinAlphabet[int(b[i])%len(joinAlphabet)]
-	}
-	s := string(b)
+	s := string(code)
 	return s[:4] + "-" + s[4:8] + "-" + s[8:], nil
 }
 

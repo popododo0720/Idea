@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -202,5 +203,65 @@ func TestJoinConfigHasNoAdminSecrets(t *testing.T) {
 	}
 	if !strings.Contains(body, "type: worker") {
 		t.Fatal("not a worker configuration")
+	}
+}
+
+type fixedReader struct {
+	b []byte
+	i int
+}
+
+func (f *fixedReader) Read(p []byte) (int, error) {
+	if f.i >= len(f.b) {
+		return 0, io.EOF
+	}
+	n := copy(p, f.b[f.i:])
+	f.i += n
+	return n, nil
+}
+
+func TestJoinCodeRejectsBiasedBytes(t *testing.T) {
+	// 248 is the first byte of the biased tail (256 - 256%31); it must be dropped.
+	in := []byte{248, 255, 250, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}
+	code, err := joinCodeFrom(&fixedReader{b: append(in, make([]byte, 32)...)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ""
+	for _, b := range append(in[3:], 0) {
+		want += string(joinAlphabet[int(b)%len(joinAlphabet)])
+	}
+	want = want[:12]
+	if strings.ReplaceAll(code, "-", "") != want {
+		t.Fatalf("code %q, want letters %q", code, want)
+	}
+}
+
+func TestJoinCodeReadError(t *testing.T) {
+	if _, err := joinCodeFrom(&fixedReader{b: []byte{1, 2}}); err == nil {
+		t.Fatal("a short random source must fail")
+	}
+}
+
+func TestJoinCodeUniform(t *testing.T) {
+	counts := map[rune]int{}
+	const codes = 20000
+	for range codes {
+		c, err := newJoinCode()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range strings.ReplaceAll(c, "-", "") {
+			counts[r]++
+		}
+	}
+	if len(counts) != len(joinAlphabet) {
+		t.Fatalf("%d distinct characters, want %d", len(counts), len(joinAlphabet))
+	}
+	exp := float64(codes*12) / float64(len(joinAlphabet))
+	for r, n := range counts {
+		if d := float64(n) - exp; d > exp*0.1 || d < -exp*0.1 {
+			t.Fatalf("character %q seen %d times, expected about %.0f", r, n, exp)
+		}
 	}
 }

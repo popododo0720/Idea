@@ -126,7 +126,7 @@ On that machine, the setup page answered (306 s), model key entry, issue creatio
 - Installed machines follow the `stable` tag, so a bad release spreads to every machine. Pre-release testing and a rollback procedure are needed.
 - Nodes can be added: see "Join an existing machine" below. The control plane stays on the first machine (one etcd member); extra nodes are workers.
 
-## Join an existing machine (v0.5.0 setup, controller 0.9.0)
+## Join an existing machine (v0.5.1 setup, controller 0.9.2)
 
 A second blank machine booted from the same ISO can become an extra worker node of an existing idea machine. The cluster gets more room for worker VMs, and the controller places them there by itself (`workers.go` already checks every Ready, schedulable node for room).
 
@@ -134,10 +134,10 @@ A second blank machine booted from the same ISO can become an extra worker node 
 
 1. In the idea panel, Sessions view, press **Add a node**, then **Get a join code**. The panel shows the code, the address and the certificate fingerprint of the existing machine. The code works once and for 30 minutes.
 2. Boot the other machine from the ISO. If it has one empty disk, its console says to open the install page within a minute to join; otherwise it becomes a new machine. With several disks, or a used one, the page is always shown (`http://<address of the new machine>:8080/`).
-3. On the install page choose **Join an existing machine**, enter the address (`<address>:30443`), the join code and, optionally, the fingerprint. Choose the disk and confirm the erase.
+3. On the install page choose **Join an existing machine**, enter the address (`<address>:30443`), the join code and the certificate fingerprint shown in the panel (required). Choose the disk and confirm the erase.
 4. The machine installs Talos with the worker configuration and restarts. A few minutes later it appears as a node and the next worker VMs can start on it.
 
-Without a person at the page: kernel arguments `idea.join=<address:port>`, `idea.join-code=<code>`, optional `idea.join-fp=<sha256 fingerprint>` and `idea.disk=/dev/xxx`.
+Without a person at the page: kernel arguments `idea.join=<address:port>`, `idea.join-code=<code>`, `idea.join-fp=<sha256 fingerprint>` (required) and `idea.disk=/dev/xxx`.
 
 ### How it works
 
@@ -145,7 +145,7 @@ Without a person at the page: kernel arguments `idea.join=<address:port>`, `idea
 - `POST /api/v1/nodes/join-code` (paired device token) stores the hash of a new random code and its expiry in the Secret `idea-join` and answers with the code. A new code replaces the old one.
 - `POST /api/v1/nodes/join` (no token, the code stands in) compares the code in constant time, then empties the Secret, so the code is single use, and answers with the worker configuration. A wrong, used or expired code costs the caller `wrongCodeDelay` (one second) while a lock is held, so guessing is limited to one try per second for everybody together, as for the setup code.
 - The worker configuration holds what a Talos worker needs: the cluster CA certificate, the join tokens, the control plane address. It holds no admin talosconfig and no private key of the cluster. A worker does carry the join token, so whoever holds the answer can join a node; this is why the code is single use and short lived.
-- On the new machine `idea-join` (a small Go program in the setup extension) fetches the configuration. With a fingerprint given, the connection is used only if the existing machine presents that certificate; without it, the join code alone protects the exchange.
+- On the new machine `idea-join` (a small Go program in the setup extension) fetches the configuration. The fingerprint is required: the connection is used only if the existing machine presents that certificate, and `idea-join` refuses to run without one (no trust on first use).
 - The new node uses the local-path directory or data disk like a first machine. The control plane taint is untouched, since the node is a worker.
 
 ### Limits
