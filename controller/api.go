@@ -594,8 +594,14 @@ func (c *Controller) retryTask(ctx context.Context, t taskView, note string) err
 			slog.Warn("retry comment", "err", err.Error())
 		}
 	}
-	for _, k := range []string{"pullRequest", "pullRequestURL", "headSHA"} {
+	for _, k := range []string{"pullRequest", "pullRequestURL", "headSHA",
+		"reviewSHA", "reviewSession", "reviewCursor", "reviewSince", "reviewApproved"} {
 		unstructured.RemoveNestedField(t.obj.Object, "status", k)
 	}
-	return c.setPhase(ctx, t, phasePending, "retry requested from dsh", nil)
+	// Every counter that limits one attempt starts again; the attempt number
+	// keeps the prompt request ids of the new attempt apart from the old ones.
+	return c.setPhase(ctx, t, phasePending, "retry requested from dsh", map[string]any{
+		"attempt": t.attempt + 1, "conflicts": int64(0), "publishFixes": int64(0),
+		"reviewRounds": int64(0), "reviewVerdict": "",
+	})
 }

@@ -138,7 +138,7 @@ func (c *Controller) startReview(ctx context.Context, t taskView, number int64, 
 	}
 	round := statusInt(t, "reviewRounds") + 1
 	// A fixed id: after a crash, creating it again returns the same session.
-	id := fmt.Sprintf("idea-review-%s-%d-%.8s", t.name, round, sha)
+	id := fmt.Sprintf("idea-review-%s-a%d-%d-%.8s", t.name, t.attempt, round, sha)
 	session, err := d.createSession(ctx, ws, id, fmt.Sprintf("review #%d %s", t.issue, t.title), c.cfg.AgentPreset)
 	if err != nil {
 		return err
@@ -208,7 +208,7 @@ func (c *Controller) requestChanges(ctx context.Context, t taskView, number int6
 	if err != nil {
 		return err
 	}
-	if err := d.prompt(ctx, t.session, fmt.Sprintf("idea-%s-review-%d", t.name, rounds), reviewFollowUp(number, review)); err != nil {
+	if err := d.prompt(ctx, t.session, t.requestID("review", rounds), reviewFollowUp(number, review)); err != nil {
 		return err
 	}
 	return c.setPhase(ctx, t, phaseWorking, fmt.Sprintf("review asked for changes to pull request #%d; the agent is fixing them", number),
