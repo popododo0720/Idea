@@ -140,9 +140,32 @@ func (t taskView) gateJob() string { return "g-" + t.name }
 // project is the repository name, which is also the project's name.
 func (t taskView) project() string { return t.repo[strings.LastIndex(t.repo, "/")+1:] }
 
-// setPhase writes the new phase (and extra status fields) to the Task.
+// setPhase writes the new phase (and extra status fields) to the Task. When
+// the Task changed since it was read (an earlier step of the same pass wrote
+// its status, e.g. the review approval right before the merge), the change
+// is applied once more to the current Task instead of failing.
 func (c *Controller) setPhase(ctx context.Context, t taskView, phase, message string, extra map[string]any) error {
-	status, _, _ := unstructured.NestedMap(t.obj.Object, "status")
+	res := c.dyn.Resource(taskGVR).Namespace(t.obj.GetNamespace())
+	_, err := res.UpdateStatus(ctx, withPhase(t, t.obj, phase, message, extra), metav1.UpdateOptions{})
+	if apierrors.IsConflict(err) {
+		var cur *unstructured.Unstructured
+		if cur, err = res.Get(ctx, t.obj.GetName(), metav1.GetOptions{}); err == nil {
+			_, err = res.UpdateStatus(ctx, withPhase(t, cur, phase, message, extra), metav1.UpdateOptions{})
+		}
+	}
+	if err != nil {
+		return err
+	}
+	slog.Info("task phase", "task", t.name, "phase", phase, "message", message)
+	c.store.Event(ctx, t.name, phase, message)
+	return nil
+}
+
+// withPhase is a copy of obj (the task t) with the new phase, message and
+// extra status fields.
+func withPhase(t taskView, obj *unstructured.Unstructured, phase, message string, extra map[string]any) *unstructured.Unstructured {
+	u := obj.DeepCopy()
+	status, _, _ := unstructured.NestedMap(u.Object, "status")
 	if status == nil {
 		status = map[string]any{}
 	}
@@ -155,15 +178,8 @@ func (c *Controller) setPhase(ctx context.Context, t taskView, phase, message st
 	for k, v := range extra {
 		status[k] = v
 	}
-	u := t.obj.DeepCopy()
 	u.Object["status"] = status
-	_, err := c.dyn.Resource(taskGVR).Namespace(u.GetNamespace()).UpdateStatus(ctx, u, metav1.UpdateOptions{})
-	if err != nil {
-		return err
-	}
-	slog.Info("task phase", "task", t.name, "phase", phase, "message", message)
-	c.store.Event(ctx, t.name, phase, message)
-	return nil
+	return u
 }
 
 // dshOf is the dsh a task's session lives in.
@@ -449,6 +465,13 @@ func (c *Controller) gate(ctx context.Context, t taskView) error {
 	pr, err := c.fj.FindPR(ctx, t.repo, t.branch)
 	if err != nil {
 		return err
+	}
+	if pr == nil && t.pr > 0 {
+		// Merging deletes the branch, and Forgejo then lists the pull
+		// request under refs/pull/N/head: look it up by its number.
+		if pr, err = c.fj.PR(ctx, t.repo, t.pr); err != nil {
+			return err
+		}
 	}
 	if pr == nil {
 		return c.fail(ctx, t, "the pull request disappeared")
