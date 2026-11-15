@@ -96,6 +96,26 @@ spec:
                 publishFixes:
                   type: integer
                   format: int64
+                # Agent review before merging (controller/review.go): the head
+                # reviewed, its review session and log position, when it
+                # started, the verdict, the head approved, and the rounds of
+                # changes asked for.
+                reviewSHA:
+                  type: string
+                reviewSession:
+                  type: string
+                reviewCursor:
+                  type: integer
+                  format: int64
+                reviewSince:
+                  type: string
+                reviewVerdict:
+                  type: string
+                reviewApproved:
+                  type: string
+                reviewRounds:
+                  type: integer
+                  format: int64
 ---
 # Project: one repository idea works on (Forgejo organisation "idea", the
 # repository has the project's name). Issues in it become Tasks.
