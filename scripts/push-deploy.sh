@@ -18,6 +18,9 @@ esac
 # Nothing leaves the repo without passing the secret check.
 "$REPO_ROOT/scripts/check-secrets.sh"
 
+# Do not push manifests whose idea-* images were never built.
+"$REPO_ROOT/scripts/check-images.sh"
+
 cd "$REPO_ROOT"
 # A file that .gitignore hides is in the artifact but not in the repository:
 # the cluster works while a clone of the repo does not build.
