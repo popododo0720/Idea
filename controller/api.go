@@ -388,9 +388,12 @@ func (c *Controller) apiHandler() http.Handler {
 		if !ok {
 			return
 		}
-		events, err := c.store.Events(r.Context(), t.name, 200)
-		if err != nil {
-			slog.Warn("task events", "err", err.Error())
+		var events []Event
+		if c.store != nil {
+			var err error
+			if events, err = c.store.Events(r.Context(), t.name, 200); err != nil {
+				slog.Warn("task events", "err", err.Error())
+			}
 		}
 		rows, _ := c.taskRows(r.Context())
 		var row *taskRow
@@ -399,7 +402,15 @@ func (c *Controller) apiHandler() http.Handler {
 				row = &rows[i]
 			}
 		}
-		writeJSON(w, 200, map[string]any{"task": row, "body": t.body, "events": events, "session": t.session})
+		// The commit status of the pull request head: what the Team tab shows
+		// as the CI state.
+		ci := ""
+		if t.sha != "" {
+			if st, err := c.fj.Status(r.Context(), t.repo, t.sha); err == nil && st.TotalCount > 0 {
+				ci = st.State
+			}
+		}
+		writeJSON(w, 200, map[string]any{"task": row, "body": t.body, "events": events, "session": t.session, "ci": ci})
 	})
 
 	// Retry a failed task, optionally with an extra instruction. The note is

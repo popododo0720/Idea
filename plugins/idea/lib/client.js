@@ -83,6 +83,20 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
 .idea-msg-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;font-size:13px;margin-bottom:6px;color:var(--idea-text-2)}
 .idea-msg-head strong{color:var(--idea-text);font-weight:600}
 .idea-msg-body{white-space:pre-wrap;word-break:break-word;margin:0;padding:10px 14px;border-radius:var(--idea-r-md);background:var(--idea-surface);border:1px solid var(--idea-line-soft);font:inherit;color:var(--idea-text)}
+.idea-chat-live{display:flex;flex-direction:column;overflow:hidden}
+.idea-tr{display:flex;flex-direction:column;flex:1;min-height:0}
+.idea-tr-meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 12px;font-size:13px;color:var(--idea-text-2)}
+.idea-tr-list{flex:1;min-height:0;overflow:auto}
+.idea-ev{margin:0 0 10px;font-size:13px}
+.idea-ev-text{white-space:pre-wrap;word-break:break-word;margin:0;padding:8px 12px;border-radius:var(--idea-r-md);border:1px solid var(--idea-line-soft);background:var(--idea-surface)}
+.idea-ev-user .idea-ev-text{background:var(--idea-active)}
+.idea-ev-label{font-size:12px;color:var(--idea-text-3);margin:0 0 3px}
+.idea-ev-tool{border:1px solid var(--idea-line-soft);border-radius:var(--idea-r-sm);padding:6px 10px}
+.idea-ev-tool-head{display:flex;gap:8px;align-items:baseline;min-width:0}
+.idea-ev-tool-head code{font-family:var(--idea-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.idea-ev-tool pre{margin:6px 0 0;padding:6px 8px;max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-family:var(--idea-mono);font-size:12px;background:var(--idea-bg);border-radius:var(--idea-r-sm)}
+.idea-ev-bad{color:var(--idea-bad)}
+.idea-ev-end{color:var(--idea-text-3);font-size:12px;text-align:center}
 .idea-link{background:none;border:0;padding:0;color:var(--idea-link);font:inherit;font-size:13px;cursor:pointer}
 .idea-link:hover{text-decoration:underline}
 .idea-group .idea-link{color:var(--idea-text-2);font-weight:500}
@@ -275,6 +289,136 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
         m.clipped ? h("p", { className: "idea-hint" }, "Shortened here; the full text is in the session.") : null);
     }
 
+    // One entry of an agent's transcript.
+    function TranscriptRow({ e }) {
+      const [open, setOpen] = useState(false);
+      const [more, setMore] = useState(false);
+      const label = (text) => h("div", { className: "idea-ev-label" }, text + (e.t ? " · " + timeOf(e.t) : ""));
+      if (e.kind === "user") {
+        return h("div", { className: "idea-ev idea-ev-user" }, label(e.source === "user" ? "Prompt" : "Prompt (" + e.source + ")"),
+          h("div", { className: "idea-ev-text" }, e.text));
+      }
+      if (e.kind === "assistant") {
+        return h("div", { className: "idea-ev" }, label(e.interrupted ? "Assistant (interrupted)" : "Assistant"),
+          h("div", { className: "idea-ev-text" }, e.text));
+      }
+      if (e.kind === "error") {
+        return h("div", { className: "idea-ev idea-ev-bad" }, label("Error"), h("div", { className: "idea-ev-text" }, e.text));
+      }
+      if (e.kind === "turn-end") {
+        return h("div", { className: "idea-ev idea-ev-end" }, "End of turn · " + e.reason + (e.t ? " · " + timeOf(e.t) : ""));
+      }
+      const result = e.result === undefined ? null : more || !e.resultTruncated && e.result.length <= 600 ? e.result : e.result.slice(0, 600) + "…";
+      return h("div", { className: "idea-ev idea-ev-tool" },
+        h("div", { className: "idea-ev-tool-head" },
+          h("strong", null, e.name || "tool"),
+          h("code", { className: "idea-grow" }, e.summary),
+          e.result === undefined ? h("span", { className: "idea-tag" }, "running…") : e.isError ? h("span", { className: "idea-tag idea-ev-bad" }, "error") : null,
+          h("button", { type: "button", className: "idea-link", onClick: () => setOpen(!open) }, open ? "Hide" : "Details")),
+        open ? h("pre", null, e.args || "") : null,
+        open && result !== null ? h("pre", null, result) : null,
+        open && result !== null && (e.resultTruncated || e.result.length > 600)
+          ? h("button", { type: "button", className: "idea-link", onClick: () => setMore(!more) },
+            more ? "Show less" : e.result.length > 600 ? "Show more" : "")
+          : null,
+        open && e.resultTruncated && more ? h("p", { className: "idea-hint" }, "Cut at " + e.result.length + " of " + e.resultLength + " characters; the rest is in the session.") : null);
+    }
+
+    // Join a result row whose call came on an older page, and keep one row per seq.
+    function mergeRows(rows) {
+      const byCall = new Map();
+      const out = [];
+      for (const r of [...rows].sort((a, b) => a.seq - b.seq)) {
+        if (r.kind === "tool") {
+          const call = byCall.get(r.callId);
+          if (call && !r.name) { Object.assign(call, { result: r.result, resultLength: r.resultLength, resultTruncated: r.resultTruncated, isError: r.isError }); continue; }
+          byCall.set(r.callId, r);
+        }
+        out.push(r);
+      }
+      return out;
+    }
+
+    const transcriptPath = (vm, session, before) => "/team/transcript?vm=" + encodeURIComponent(vm || "idea-dsh")
+      + "&session=" + encodeURIComponent(session) + (before ? "&before=" + before : "");
+
+    // An agent's whole session: the newest events first, older ones on
+    // scrolling up, new ones every few seconds while shown.
+    function Transcript({ vm, session, task }) {
+      const [rows, setRows] = useState([]);
+      const [more, setMore] = useState(false);
+      const [error, setError] = useState(null);
+      const [loaded, setLoaded] = useState(false);
+      const list = React.useRef(null);
+      const stick = React.useRef(true);
+      const oldest = React.useRef(0);
+      const newest = React.useRef(0);
+      const busy = React.useRef(false);
+      const path = before => transcriptPath(vm, session, before);
+      useEffect(() => {
+        let alive = true;
+        setRows([]); setMore(false); setLoaded(false); setError(null);
+        oldest.current = 0; newest.current = 0; stick.current = true;
+        const poll = async () => {
+          if (busy.current) return;
+          busy.current = true;
+          try {
+            const p = await api("GET", transcriptPath(vm, session));
+            if (!alive) return;
+            const first = newest.current === 0;
+            const gap = !first && p.hasMore && p.oldest > newest.current;
+            setRows(old => first || gap ? p.items : old.filter(r => r.seq < p.oldest).concat(p.items));
+            if (first || gap) { oldest.current = p.oldest; setMore(p.hasMore); }
+            newest.current = Math.max(newest.current, p.newest);
+            setError(null); setLoaded(true);
+          } catch (err) { if (alive) { setError(err); setLoaded(true); } }
+          busy.current = false;
+        };
+        poll();
+        const t = setInterval(poll, 3000);
+        return () => { alive = false; clearInterval(t); };
+      }, [vm, session]);
+      const shown = mergeRows(rows);
+      const lastResult = shown.length ? shown[shown.length - 1].result : null;
+      useEffect(() => {
+        const el = list.current;
+        if (el && stick.current) el.scrollTop = el.scrollHeight;
+      }, [shown.length, loaded, lastResult]);
+      const loadOlder = async () => {
+        if (busy.current || !oldest.current) return;
+        busy.current = true;
+        const el = list.current;
+        const height = el ? el.scrollHeight : 0;
+        try {
+          const p = await api("GET", path(oldest.current));
+          oldest.current = p.oldest || oldest.current;
+          setMore(p.hasMore);
+          setRows(old => p.items.concat(old));
+          requestAnimationFrame(() => { if (el) el.scrollTop = el.scrollHeight - height; });
+        } catch (err) { setError(err); }
+        busy.current = false;
+      };
+      const onScroll = e => {
+        const el = e.currentTarget;
+        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+        if (el.scrollTop < 40 && more) loadOlder();
+      };
+      const ci = task && task.ci;
+      return h("div", { className: "idea-tr" },
+        task ? h("div", { className: "idea-tr-meta" },
+          h("span", { className: "idea-tag" }, "Phase " + task.phase),
+          task.pullRequestURL || task.pullRequest
+            ? h("a", { className: "idea-link", href: task.pullRequestURL || "#", target: "_blank", rel: "noreferrer" }, "Pull request #" + task.pullRequest)
+            : h("span", { className: "idea-tag" }, "No pull request yet"),
+          h("span", { className: "idea-tag" }, "CI " + (ci ? ci : "none yet"))) : null,
+        error ? h(ErrorLine, { error }) : null,
+        h("div", { className: "idea-tr-list", ref: list, onScroll },
+          more ? h("button", { type: "button", className: "idea-link", onClick: loadOlder }, "Load older events") : null,
+          shown.map(e => h(TranscriptRow, { key: e.seq + "/" + e.kind, e })),
+          loaded && !shown.length && !error ? h("p", { className: "idea-hint" }, "No events in this session yet.") : null,
+          !loaded ? h("p", { className: "idea-hint" }, "Loading…") : null));
+    }
+
     // Every agent and its messages. Polls while shown.
     function TeamView({ visible, onOpen }) {
       const [data, setData] = useState(null);
@@ -282,6 +426,19 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
       const [error, setError] = useState(null);
       const [pick, setPick] = useState(null); // {kind:"member", team, name, vm} | {kind:"task", name, vm}
       const chat = React.useRef(null);
+      const [detail, setDetail] = useState(null); // the picked task agent: {session, ci}
+      const pickedTaskName = pick && pick.kind === "task" ? pick.name : "";
+      useEffect(() => {
+        setDetail(null);
+        if (!visible || !pickedTaskName) return undefined;
+        let alive = true;
+        const load = async () => {
+          try { const d = await api("GET", "/v1/tasks/" + encodeURIComponent(pickedTaskName)); if (alive) setDetail({ name: pickedTaskName, session: d.session || "", ci: d.ci || "" }); } catch { /* keep the last */ }
+        };
+        load();
+        const t = setInterval(load, 10000);
+        return () => { alive = false; clearInterval(t); };
+      }, [visible, pickedTaskName]);
       useEffect(() => {
         if (!visible) return undefined;
         let alive = true;
@@ -337,6 +494,7 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
         : pick.kind === "team" ? "Team " + pick.team
         : pick.kind === "member" ? pick.name + " · team " + pick.team : pick.name;
 
+      const live = Boolean(pick && (pick.kind === "task" || (pick.kind === "member" && pick.session && pickedMember && pickedMember.status !== "stopped")));
       return h("div", { className: "idea-team" + (visible ? "" : " idea-hide") },
         h("div", { className: "idea-agents" },
           error ? h(ErrorLine, { error }) : null,
@@ -351,7 +509,7 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
             t.members.map(m => h(AgentCard, {
               key: m.name,
               pressed: same(pick, { kind: "member", team: t.team, name: m.name }),
-              onClick: () => choose({ kind: "member", team: t.team, name: m.name, vm: m.vm }),
+              onClick: () => choose({ kind: "member", team: t.team, name: m.name, vm: m.vm, session: m.session }),
               dot: m.status === "working" ? "working" : m.status === "unknown" ? "unknown" : m.status === "stopped" ? "stopped" : "",
               title: m.name, tag: m.vm, sub: m.status === "stopped" ? "stopped" + (m.role ? " · " + m.role : "") : m.role,
               line: m.doing && m.doing.length ? "Doing " + m.doing.join(", ") : m.lastText ? timeOf(m.lastAt) + " · " + m.lastText : "",
@@ -369,12 +527,12 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
             line: t.message || "",
           })),
           data && !teams.length && !activeTasks.length
-            ? h("p", { className: "idea-hint" }, "No agents yet. When the orchestrator starts a team (team_spawn) or a project gets issues, the agents show up here.")
+            ? h("p", { className: "idea-hint" }, "No agents yet. Team members show up here once an orchestrator starts a team (team_spawn), and a task agent while a project issue is being worked on. Pick one to read its whole conversation.")
             : null,
           data && data.errors && data.errors.length
             ? h("p", { className: "idea-hint" }, "Not answering: " + data.errors.map(e => e.vm).join(", "))
             : null),
-        h("div", { className: "idea-chat", ref: chat, onScroll },
+        h("div", { className: "idea-chat" + (live ? " idea-chat-live" : ""), ref: chat, onScroll: live ? undefined : onScroll },
           h("div", { className: "idea-head" },
             h("strong", { className: "idea-grow" }, pickedLabel),
             pick && pick.kind === "member" && pick.name !== "lead" && pickedMember && pickedMember.status !== "stopped"
@@ -386,7 +544,15 @@ body[data-ds-dark-theme] .idea-root{color-scheme:dark}
             pick ? h("button", { type: "button", className: "idea-btn", onClick: () => setPick(null) }, "Show all") : null),
           pick && pickedTeam && pick.kind !== "task" ? h(Board, { tasks: pickedTeam.tasks, mine: pick.kind === "member" ? pick.name : "" }) : null,
           pick && pick.kind === "task"
-            ? h("p", { className: "idea-hint" }, "Task agents work alone; their work is in the session and the pull request. Open the session to see every step.")
+            ? (() => {
+              const row = tasks.find(x => x.name === pick.name);
+              const session = detail && detail.name === pick.name ? detail.session : "";
+              return session
+                ? h(Transcript, { key: pick.name, vm: pick.vm, session, task: row ? { ...row, ci: detail.ci } : null })
+                : h("p", { className: "idea-hint" }, detail ? "This task has no session yet." : "Loading…");
+            })()
+            : pick && pick.kind === "member" && pick.session && pickedMember && pickedMember.status !== "stopped"
+              ? h(Transcript, { key: pick.team + "/" + pick.name, vm: pick.vm, session: pick.session, task: null })
             : shown.length
               ? shown.map((m, i) => h(Message, { key: m.t + "/" + i, m }))
               : h("p", { className: "idea-hint" }, data ? "No messages yet." : "")));

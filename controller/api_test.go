@@ -664,3 +664,29 @@ func TestRequestIDsNeverRepeatAcrossAttempts(t *testing.T) {
 		}
 	}
 }
+
+func TestAPITaskDetailCI(t *testing.T) {
+	task := taskObj(7, map[string]any{"phase": phaseGate, "pullRequest": int64(3), "headSHA": "abc123", "session": "idea-shop-issue-7"})
+	e, h, auth := authedEnv(t, task)
+	e.fj.on("GET /repos/idea/shop/commits/abc123/status", 200, gateStatusJSON("success", 1))
+	w := serve(h, "GET", "/api/v1/tasks/"+task.GetName(), auth, "", "")
+	if w.Code != 200 {
+		t.Fatalf("detail: %d %s", w.Code, w.Body.String())
+	}
+	var out struct {
+		CI      string `json:"ci"`
+		Session string `json:"session"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.CI != "success" || out.Session != "idea-shop-issue-7" {
+		t.Errorf("detail = %+v", out)
+	}
+
+	e.fj.on("GET /repos/idea/shop/commits/abc123/status", 200, gateStatusJSON("pending", 0))
+	w = serve(h, "GET", "/api/v1/tasks/"+task.GetName(), auth, "", "")
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || out.CI != "" {
+		t.Errorf("no statuses yet: ci = %q (%v)", out.CI, err)
+	}
+}

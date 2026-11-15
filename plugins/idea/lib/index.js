@@ -25,6 +25,7 @@ import { pinnedSocket, portOf } from './tls-pin.js'
 import { createModelSync } from './model-sync.js'
 import { createSubscriptionsSync } from './subscriptions-sync.js'
 import { teamView } from './team-view.js'
+import { transcriptPage } from './transcript.js'
 import { createLocalGit } from './git-local.js'
 import { createTools } from './tools.js'
 import { createUpdater } from './update.js'
@@ -337,6 +338,24 @@ export function apply(ctx) {
       let workers
       try { workers = await workerVms() } catch (e) { sendJson(res, 502, { error: `Could not reach the machine: ${e.message}`, offline: true }); return }
       sendJson(res, 200, await teamView({ workers, viewOf }))
+      return
+    }
+
+    // One agent's conversation: a page of its session events, newest first.
+    if (sub === '/team/transcript' && method === 'GET') {
+      if (!process.env.IDEA_DEV_DSH_LOGIN && !(await loadPairing())) { sendJson(res, 409, { error: 'not paired' }); return }
+      let vm = url.searchParams.get('vm') || ''
+      if (vm === 'idea-dsh') vm = ''
+      const session = url.searchParams.get('session') || ''
+      const beforeText = url.searchParams.get('before')
+      if (!VM.test(vm) || (vm && process.env.IDEA_DEV_DSH_LOGIN)) { sendJson(res, 400, { error: 'unknown VM' }); return }
+      if (!/^[A-Za-z0-9._-]{1,200}$/.test(session)) { sendJson(res, 400, { error: 'invalid session' }); return }
+      if (beforeText !== null && !/^\d{1,12}$/.test(beforeText)) { sendJson(res, 400, { error: 'invalid before' }); return }
+      try {
+        sendJson(res, 200, await transcriptPage({ view: viewOf(vm), session, before: beforeText === null ? undefined : Number(beforeText) }))
+      } catch (e) {
+        sendJson(res, 502, { error: `could not read the session: ${e.message}` })
+      }
       return
     }
 

@@ -170,7 +170,7 @@ test('unpaired: the state says so and every machine route is 409', async t => {
   assert.equal(s.headers['x-content-type-options'], 'nosniff')
   for (const [m, p, json] of [
     ['GET', '/idea/v1/status'], ['POST', '/idea/v1/tasks', { title: 'x' }], ['GET', '/idea/v1/tasks/abc?x=1'],
-    ['DELETE', '/idea/v1/devices/0123456789ab'], ['GET', '/idea/view'], ['GET', '/idea/team'],
+    ['DELETE', '/idea/v1/devices/0123456789ab'], ['GET', '/idea/view'], ['GET', '/idea/team'], ['GET', '/idea/team/transcript?vm=&session=idea-x'],
     ['POST', '/idea/team/stop', { team: 'deadbeef', name: 'alice' }], ['POST', '/idea/team/delete', { team: 'deadbeef' }],
   ]) {
     const r = await h.call(m, p, json ? { json } : {})
@@ -531,4 +531,50 @@ test('/update shows the banner state and /update/apply only runs on a POST', asy
   assert.equal(r.json.available, true)
   assert.equal(r.json.latest, '99.0.0')
   assert.equal((await h.call('GET', '/idea/update/apply')).status, 404)
+})
+
+test('/idea/team/transcript reads one session of a VM, a page at a time, and refuses bad input', { skip: noOpenssl }, async t => {
+  const pair = selfSigned('machine')
+  const asked = []
+  const log = Array.from({ length: 6 }, (_, i) => ({
+    type: 'assistant/message', seq: i + 1, time: 1,
+    data: { message: { role: 'assistant', content: [{ type: 'text', text: i === 5 ? 'key sk-' + 'a1b2c3d4e5f6g7h8i9j0' : 'm' + (i + 1) }] }, stream: [{ chunk: 1 }] },
+  }))
+  const dsh = createHttpsServer({ cert: pair.cert, key: pair.key }, (req, res) => {
+    if (req.url.startsWith('/login')) { res.writeHead(302, { 'set-cookie': 'sid=1; Path=/', location: '/' }).end(); return }
+    let body = ''
+    req.setEncoding('utf8')
+    req.on('data', c => { body += c })
+    req.on('end', () => {
+      const call = JSON.parse(body)
+      asked.push([req.url, call.payload.args.request])
+      const { beforeSeq = 7 } = call.payload.args.request
+      const page = log.filter(e => e.seq < beforeSeq).slice(-3)
+      res.writeHead(200, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ result: { ok: true, value: { records: page.map(event => ({ type: 'event', event })).reverse(), hasMore: page[0].seq > 1, cursor: 6 } } }))
+    })
+  })
+  const dshPort = await listen(dsh)
+  t.after(() => close(dsh))
+  const machine = await fakeMachine(t, pair, { dshPort })
+  const h = await plugin(t)
+  await paired(h, machine)
+
+  let r = await h.call('GET', '/idea/team/transcript?vm=idea-dsh&session=idea-shop-issue-7')
+  assert.equal(r.status, 200, r.text)
+  assert.deepEqual(r.json.items.map(i => i.text), ['m4', 'm5', 'key [redacted]'])
+  assert.deepEqual([r.json.hasMore, r.json.oldest, r.json.newest], [true, 4, 6])
+  assert.ok(!r.text.includes('chunk'))
+  assert.deepEqual(asked[0], ['/api/session/events', { address: { kind: 'session', sessionId: 'idea-shop-issue-7' }, maxMessages: 40 }])
+
+  r = await h.call('GET', '/idea/team/transcript?session=idea-shop-issue-7&before=4')
+  assert.deepEqual(r.json.items.map(i => i.text), ['m1', 'm2', 'm3'])
+  assert.equal(r.json.hasMore, false)
+  assert.equal(asked[1][1].beforeSeq, 4)
+
+  for (const q of ['vm=evil&session=x', 'vm=idea-worker-1234&session=x', 'session=', 'session=a/b', 'session=x&before=-1', 'session=x&before=abc']) {
+    r = await h.call('GET', '/idea/team/transcript?' + q)
+    assert.equal(r.status, 400, q)
+  }
+  assert.equal(asked.length, 2)
 })
